@@ -1,0 +1,2257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>空运货代工具</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231456f0'/%3E%3Cpath d='M50 34 L34 32 L42 18 L38 16 L30 30 L18 28 L14 32 L28 38 L26 46 L30 48 L36 38 L48 40 Z' fill='white'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #e2e4e9;
+    --text: #1f2329;
+    --text-2: #646a73;
+    --text-3: #8f959e;
+    --primary: #1456f0;
+    --primary-soft: #e8efff;
+    --accent: #ff7d00;
+    --accent-soft: #fff3e6;
+    --green: #0ea77c;
+    --green-soft: #e6f7f1;
+    --red: #d54941;
+    --red-soft: #fdecea;
+    --radius: 8px;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  /* ===== 顶部导航 ===== */
+  .topbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .brand {
+    font-weight: 700;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand svg { width: 22px; height: 22px; color: var(--primary); }
+  .tabs { display: flex; gap: 4px; height: 100%; }
+  .tab {
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--text-2);
+    font-weight: 500;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  /* ===== 主区域 ===== */
+  .main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+  /* ===== 卡片 ===== */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* ===== 表单 ===== */
+  textarea, input, select {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+    outline: none;
+    transition: border-color .15s;
+  }
+  textarea:focus, input:focus, select:focus { border-color: var(--primary); }
+  textarea { resize: vertical; min-height: 90px; }
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-2);
+    margin-bottom: 4px;
+  }
+  .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .row-3 { grid-template-columns: repeat(3, 1fr); }
+  .row-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 720px) {
+    .row, .row-3, .row-2 { grid-template-columns: repeat(2, 1fr); }
+  }
+  /* ===== 按钮 ===== */
+  .btn {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity .15s, background .15s;
+  }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: #0f47c7; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-accent:hover { background: #e66f00; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg); color: var(--text); }
+  .btn-sm { padding: 5px 12px; font-size: 12.5px; }
+  .btn-danger { background: var(--red-soft); color: var(--red); }
+  .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  /* ===== 标签 ===== */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .tag-blue { background: var(--primary-soft); color: var(--primary); }
+  .tag-orange { background: var(--accent-soft); color: var(--accent); }
+  .tag-green { background: var(--green-soft); color: var(--green); }
+  .tag-gray { background: var(--bg); color: var(--text-2); }
+  /* ===== 相似历史 ===== */
+  .similar-item {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .similar-item:hover { border-color: var(--primary); }
+  .similar-left { flex: 1; min-width: 240px; }
+  .similar-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .similar-price {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--green);
+    white-space: nowrap;
+  }
+  .similar-price small { font-size: 12px; font-weight: 400; color: var(--text-3); }
+  .empty {
+    text-align: center;
+    padding: 28px 12px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  /* ===== 列表 ===== */
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  th {
+    font-weight: 600;
+    color: var(--text-2);
+    background: var(--bg);
+    font-size: 12.5px;
+  }
+  tr:hover td { background: #fafbfc; }
+  .adopted-price { color: var(--green); font-weight: 700; }
+  /* ===== 详情弹窗 ===== */
+  .modal-mask {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.4);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    z-index: 100;
+    overflow-y: auto;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 720px;
+    padding: 22px 24px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.15);
+  }
+  .modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .modal-head h3 { font-size: 16px; }
+  .modal-close {
+    cursor: pointer;
+    color: var(--text-3);
+    font-size: 22px;
+    line-height: 1;
+    background: none;
+    border: none;
+  }
+  .quote-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 1.5fr auto;
+    gap: 8px;
+    margin-bottom: 8px;
+    align-items: center;
+  }
+  .quote-row input { padding: 7px 9px; font-size: 13px; }
+  /* ===== toast ===== */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity .2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  /* ===== 解析结果高亮 ===== */
+  .parsed-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .parsed-grid .field { margin-bottom: 0; }
+  @media (max-width: 720px) {
+    .parsed-grid { grid-template-columns: repeat(2, 1fr); }
+    input, select, textarea { font-size: 16px !important; } /* 防iOS点击放大 */
+  }
+  .calc-box {
+    background: var(--primary-soft);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--primary);
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .calc-box b { font-size: 15px; }
+  .option-group { display:flex; flex-wrap:wrap; gap:8px; }
+  .option-group label { display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:#fff; font-size:13px; }
+  .option-group input[type=radio] { width:auto; margin:0; }
+  .result { background:var(--primary-soft); color:var(--primary); font-weight:600; }
+  .dim-row { display:flex; gap:6px; align-items:center; margin:6px 0; flex-wrap:wrap; }
+  .dim-row input { width:80px; padding:5px 8px; border:1px solid var(--border); border-radius:4px; font-size:13px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<div class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+    空运货代工具
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-view="quick">询价数据</div>
+    <div class="tab" data-view="list">报价记录</div>
+    <div class="tab" data-view="rates">航司表价</div>
+    <div class="tab" data-view="cost">成本计算</div>
+    <div class="tab" data-view="data">后台管理</div>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ============ 视图：快速录入 ============ -->
+<div class="view active" id="view-quick">
+  <div class="card">
+    <div class="card-title">粘贴客户询价（自动解析目的港 / 件数 / 毛重 / 体积 / 尺寸）</div>
+    <textarea id="rawText" placeholder="示例：AUH 1.86CBM/3件/1300KGS 110*75*75*3
+也支持：JFK 3pcs 1300kg 1.86cbm 110x75x75x3
+或：PVG-AUH 1300K 1.86方 3件"></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnParse">解析</button>
+      <button class="btn btn-ghost" id="btnClear">清空</button>
+    </div>
+  </div>
+
+  <div id="parsedCard" class="card" style="display:none">
+    <div class="card-title">解析结果（可直接修改）</div>
+    <div class="parsed-grid">
+      <div class="field"><label>目的港 (IATA)</label><input id="fDest" placeholder="如 AUH"></div>
+      <div class="field"><label>件数</label><input id="fPieces" type="number" min="0" inputmode="numeric"></div>
+      <div class="field"><label>毛重 (kg)</label><input id="fWeight" type="number" step="0.1" min="0" inputmode="decimal"></div>
+      <div class="field"><label>体积 (CBM)</label><input id="fVolume" type="number" step="0.01" min="0" inputmode="decimal"></div>
+      <div class="field"><label>尺寸 (长*宽*高)</label><input id="fDims" placeholder="如 110*75*75"></div>
+      <div class="field"><label>客户/来源</label><input id="fCustomer" placeholder="谁问的"></div>
+      <div class="field"><label>询价日期</label><input id="fDate" type="date"></div>
+      <div class="field"><label>备注</label><input id="fRemark" placeholder="托盘/危险品/直飞..."></div>
+    </div>
+    <div class="calc-box" id="calcBox" style="display:none"></div>
+    <div class="btn-row">
+      <button class="btn btn-accent" id="btnSave">存为新询价</button>
+      <button class="btn btn-primary" id="btnToCost">计算成本</button>
+    </div>
+  </div>
+
+  <div id="similarCard" class="card" style="display:none">
+    <div class="card-title">
+      <span>相似历史询价（同目的港 / 重量泡重接近 / 近 <span id="similarDays">7</span> 天）</span>
+      <span class="tag tag-gray" id="similarCount"></span>
+    </div>
+    <div id="similarList"></div>
+  </div>
+
+  <div id="rateMatchCard" class="card" style="display:none">
+    <div class="card-title">
+      <span>表价参考（当前已生效）</span>
+      <span class="tag tag-blue" id="rateMatchCount"></span>
+    </div>
+    <div id="rateMatchList"></div>
+  </div>
+</div>
+
+<!-- ============ 视图：询价流水 ============ -->
+<div class="view" id="view-list">
+  <div class="card">
+    <div class="row row-3">
+      <div class="field" style="margin:0">
+        <input id="searchBox" placeholder="搜索目的港 / 客户 / 备注">
+      </div>
+      <div class="field" style="margin:0">
+        <select id="filterDays">
+          <option value="7">近7天</option>
+          <option value="30" selected>近30天</option>
+          <option value="90">近90天</option>
+          <option value="0">全部</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <select id="filterStatus">
+          <option value="all">全部</option>
+          <option value="quoted">已有报价</option>
+          <option value="pending">未报价</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="padding:0; overflow:hidden">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:100px">日期</th>
+          <th style="width:80px">目的港</th>
+          <th style="width:70px">件数</th>
+          <th style="width:90px">毛重kg</th>
+          <th style="width:80px">体积CBM</th>
+          <th style="width:100px">计费重kg</th>
+          <th style="width:100px">泡重kg/方</th>
+          <th>客户/备注</th>
+          <th style="width:90px">表价</th>
+          <th style="width:90px">外配</th>
+          <th style="width:90px">卖价</th>
+          <th style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody id="listBody"></tbody>
+    </table>
+    <div class="empty" id="listEmpty" style="display:none">没有匹配的询价记录</div>
+  </div>
+</div>
+
+<!-- ============ 视图：航司表价 ============ -->
+<div class="view" id="view-rates">
+  <div class="card">
+    <div class="card-title">快速查表</div>
+    <div class="row row-3">
+      <div class="field" style="margin:0">
+        <input id="quickDest" placeholder="目的港三字代码，如 JFK" style="text-transform:uppercase">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="quickWeight" type="number" step="1" inputmode="decimal" placeholder="计费重 kg（可选）">
+      </div>
+      <div class="field" style="margin:0">
+        <button class="btn btn-primary" id="btnQuickSearch" style="width:100%">查询</button>
+      </div>
+    </div>
+    <div id="quickResult" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="card-title" style="padding:14px 16px 0">已导入表价</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:80px">航司</th>
+          <th style="width:110px">生效日</th>
+          <th style="width:110px">到期日</th>
+          <th>说明</th>
+          <th style="width:100px">价格条数</th>
+          <th style="width:120px"></th>
+        </tr>
+      </thead>
+      <tbody id="rateListBody"></tbody>
+    </table>
+    <div class="empty" id="rateListEmpty">还没有导入表价</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">导入新表价</div>
+    <div class="row row-3">
+      <div class="field" style="margin:0">
+        <input id="rateAirline" placeholder="航司代码，如 AA / LH / CZ">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="rateDate" type="date" placeholder="生效日期">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="rateExpiry" type="date" placeholder="到期日期（可选）">
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn btn-primary" id="btnImportExcel">选择 Excel 文件导入</button>
+      <button class="btn btn-ghost" id="btnManualRate">手动新增</button>
+      <button class="btn btn-ghost" id="btnUploadImg">上传截图存证</button>
+      <input type="file" id="excelFile" accept=".xlsx,.xls" style="display:none">
+      <input type="file" id="imgFile" accept="image/*" style="display:none">
+    </div>
+    <p style="color:var(--text-3);font-size:12px;margin-top:8px">
+      Excel 格式：表头含 ORIGIN / DESTINATION / CUR / 各重量档（45KG/100KG/300KG）和备注列。
+    </p>
+  </div>
+
+  <div id="ratePreviewCard" class="card" style="display:none">
+    <div class="card-title">预览导入数据（确认后点保存）</div>
+    <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+      <table style="table-layout:auto" id="ratePreviewTable"></table>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-accent" id="btnSaveRate">保存表价</button>
+      <button class="btn btn-ghost" id="btnCancelRate">取消</button>
+    </div>
+  </div>
+
+  <details class="card" style="padding:0">
+    <summary style="padding:14px 16px;cursor:pointer;font-weight:600">粘贴识别文字版表价（实验功能）</summary>
+    <div style="padding:0 16px 16px">
+      <textarea id="pastedRate" rows="4" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:13px" placeholder="粘贴航司发的文字表价..."></textarea>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" id="btnParsePasted">识别</button>
+      </div>
+      <div id="pastedPreview" style="margin-top:10px"></div>
+    </div>
+  </details>
+</div>
+
+<!-- ============ 视图：成本计算 ============ -->
+<div class="view" id="view-cost">
+  <div class="card">
+    <div class="card-title">基础参数</div>
+    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:40%"><col style="width:15%"><col style="width:15%"></colgroup>
+      <tr>
+        <td>总体积 (m³)</td>
+        <td><input id="ccVolume" type="number" step="0.0001" inputmode="decimal" placeholder="直接输入总体积">
+          <div id="ccDimContainer"></div>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn-ghost btn-sm" id="ccAddDim">添加件数尺寸</button>
+            <button class="btn btn-ghost btn-sm" id="ccCalcVol">算总体积</button>
+          </div>
+        </td>
+        <td>C.W.计费重</td>
+        <td class="result" id="ccCW">-</td>
+      </tr>
+      <tr>
+        <td>G.W.实际重量 (kg)</td>
+        <td><input id="ccGW" type="number" step="0.001" inputmode="decimal" placeholder="总实际重量"></td>
+        <td>kg/m³比</td>
+        <td class="result" id="ccRatio">-</td>
+      </tr>
+      <tr>
+        <td>USD/RMB汇率</td>
+        <td><input id="ccRate" type="number" step="0.0001" inputmode="decimal" value="6.8"></td>
+        <td>成本计费重</td>
+        <td class="result" id="ccCostW">-</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">运输类型</div>
+    <div class="option-group">
+      <label><input type="radio" name="ccBilling" value="0.006" checked><span>大陆 (1:167)</span></label>
+      <label><input type="radio" name="ccBilling" value="0.007"><span>香港 (1:143)</span></label>
+      <label><input type="radio" name="ccBilling" value="0.005"><span>快件 (1:200)</span></label>
+      <label><input type="radio" name="ccBilling" value="0.001"><span>海运 (1:1000)</span></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">分泡比例</div>
+    <div class="option-group" id="ccBubbleGroup">
+      <label><input type="radio" name="ccBubble" value="0" checked><span>不分泡</span></label>
+      <label><input type="radio" name="ccBubble" value="0.5"><span>55分</span></label>
+      <label><input type="radio" name="ccBubble" value="0.4"><span>46分</span></label>
+      <label><input type="radio" name="ccBubble" value="0.3"><span>37分</span></label>
+      <label><input type="radio" name="ccBubble" value="0.2"><span>28分</span></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">成本与售价</div>
+    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
+      <tr>
+        <td>成本单价 RMB/KG</td>
+        <td><input id="ccRmb" type="number" step="0.01" inputmode="decimal" placeholder="输入成本"></td>
+        <td>分泡后 RMB/KG</td>
+        <td class="result" id="ccRmbAfter">-</td>
+      </tr>
+      <tr>
+        <td>成本单价 USD/KG</td>
+        <td class="result" id="ccUsd">-</td>
+        <td>分泡后 USD/KG</td>
+        <td class="result" id="ccUsdAfter">-</td>
+      </tr>
+      <tr>
+        <td>目标售价 USD/KG</td>
+        <td><input id="ccTargetUsd" type="number" step="0.01" inputmode="decimal" placeholder="反算成本"></td>
+        <td>对应成本 RMB/KG</td>
+        <td class="result" id="ccTargetRmb">-</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">总成本</div>
+    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:70%"></colgroup>
+      <tr><td>总成本 RMB</td><td class="result" id="ccTotalRmb">-</td></tr>
+      <tr><td>总成本 USD</td><td class="result" id="ccTotalUsd">-</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ 视图：数据管理 ============ -->
+<div class="view" id="view-data">
+  <div class="card">
+    <div class="card-title">云同步</div>
+    <p style="color:var(--text-2);font-size:13px;margin-bottom:12px">
+      输入用户名和密码，数据自动同步到云端。不填就纯本地存储。
+    </p>
+    <div class="row row-3">
+      <div class="field" style="margin:0">
+        <input id="syncUsername" placeholder="用户名" style="font-size:13px;text-transform:lowercase">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="syncPassword" type="password" placeholder="密码" style="font-size:13px">
+      </div>
+      <div class="field" style="margin:0">
+        <button class="btn btn-primary btn-sm" id="btnSaveSync" style="width:100%">登录</button>
+      </div>
+    </div>
+    <div id="syncStatus" style="margin-top:10px;font-size:12px;color:var(--text-3)"></div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn btn-ghost btn-sm" id="btnPullCloud">从云端拉取</button>
+      <button class="btn btn-ghost btn-sm" id="btnPushCloud">推到云端</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">数据备份（重要：清浏览器缓存前请先导出）</div>
+    <p style="color:var(--text-2);font-size:13px;margin-bottom:12px">
+      所有数据只存在你当前这台电脑的当前浏览器里。建议每天录完点一次导出，存成 JSON 文件备份。换电脑时用"导入"恢复。
+    </p>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn btn-primary" id="btnExport">导出 JSON 备份</button>
+      <button class="btn btn-ghost" id="btnImport">导入 JSON 恢复</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">统计</div>
+    <div id="statsBox" style="font-size:13.5px;color:var(--text-2)"></div>
+  </div>
+  <div class="card">
+    <div class="card-title" style="color:var(--red)">危险操作</div>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn btn-danger" id="btnWipe">清空全部数据</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">询价详情</h3>
+      <button class="modal-close" id="modalClose">×</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- 限时优惠管理弹窗 -->
+<div class="modal-mask" id="adjModalMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>限时优惠（今日表价）</h3>
+      <button class="modal-close" id="adjModalClose">×</button>
+    </div>
+    <div class="card-title" style="margin-top:4px">添加新优惠</div>
+    <div class="row row-3">
+      <div class="field" style="margin:0">
+        <input id="adjAirline" placeholder="航司代码，如 AA">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="adjDelta" type="number" step="0.5" placeholder="加减金额，如 -5 / +3">
+      </div>
+      <div class="field" style="margin:0">
+        <input id="adjExpiry" type="date" placeholder="到期日">
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn btn-accent btn-sm" id="btnAddAdj">添加优惠</button>
+    </div>
+    <div class="card-title" style="margin:18px 0 8px">当前生效优惠</div>
+    <div id="adjListBody"></div>
+    <div class="empty" id="adjListEmpty" style="padding:14px">当前没有生效优惠</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =====================================================
+ *  空运询价记录 - 纯前端实现
+ *  存储：localStorage (key = af_inquiries_v1)
+ * ===================================================== */
+
+const STORE_KEY = 'af_inquiries_v1';
+const VOLUMETRIC_RATE = 167; // 1 CBM = 167 kg
+
+// ---------- 云同步配置 ----------
+const SYNC_KEY = 'af_sync_config';
+const DEFAULT_WORKER_URL = 'https://tools.xch04028-de6.workers.dev';
+function getSyncConfig() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(SYNC_KEY)) || {};
+    if (!cfg.workerUrl) cfg.workerUrl = DEFAULT_WORKER_URL;
+    return cfg;
+  } catch(e) { return { workerUrl: DEFAULT_WORKER_URL }; }
+}
+function syncToCloud(path, data) {
+  const cfg = getSyncConfig();
+  if (!cfg.workerUrl || !cfg.username || !cfg.password) return;
+  fetch(cfg.workerUrl + path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Username': cfg.username,
+      'X-Password': cfg.password
+    },
+    body: JSON.stringify(data)
+  }).catch(e => console.log('云同步失败:', e));
+}
+async function syncFromCloud(path) {
+  const cfg = getSyncConfig();
+  if (!cfg.workerUrl || !cfg.username || !cfg.password) return null;
+  try {
+    const r = await fetch(cfg.workerUrl + path, {
+      headers: {
+        'X-Username': cfg.username,
+        'X-Password': cfg.password
+      }
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+// ---------- 存储层 ----------
+function loadAll() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+function saveAll(list) {
+  localStorage.setItem(STORE_KEY, JSON.stringify(list));
+  syncToCloud('/api/inquiries', list);
+}
+function uid() {
+  return 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ---------- 工具 ----------
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+function daysAgoStr(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function fmtNum(n, digits) {
+  if (n === null || n === undefined || isNaN(n)) return '-';
+  return Number(n).toFixed(digits === undefined ? 0 : digits);
+}
+
+// ---------- 解析器：从自然语言文本拆字段 ----------
+// 噪音词：这些3字母大写不是目的港
+const NOISE_DEST = new Set([
+  'THE','AND','FOR','FROM','PCS','CTN','KGS','CBM','PKG','TOTAL','GROSS','WEIGHT',
+  'BULK','PLT','PAL','PVG','SHA','CAN','PEK','HKG','SZX','NRT','KIX','ICN','SIN',
+  'BKK','JED','RUH','CGO','TFU','WUH','NGB','TAO','DLC','TSN','CKG','KMG','HGH',
+  'FOC','CSX','HRB','SHE','URC','LXA','JNB','DKR','LOS','CAI','ADD','RUN','MBA',
+  'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE'
+]);
+
+// 智能预处理：处理欧洲小数点逗号和千分位
+// "271,50" -> "271.50"（小数点），"1,020" -> "1020"（千分位）
+function smartComma(text) {
+  return text
+    .replace(/(\d),(\d{2})(?!\d)/g, '$1.$2')   // 逗号后2位 = 小数点
+    .replace(/(\d),(\d{3})(?!\d)/g, '$1$2');    // 逗号后3位 = 千分位
+}
+
+// 单段解析：从一段文本里拆出字段（不负责多票拆分）
+function parseText(text) {
+  // 预处理：去千分位/小数点逗号
+  let t = ' ' + smartComma(text) + ' ';
+  const out = { dest:'', pieces:'', weight:'', volume:'', dims:'' };
+
+  // 目的港：优先 AAA--BBB / AAA-BBB / AAA/BBB 航线格式，取BBB
+  let m = t.match(/\b([A-Z]{3})\s*[-\/]{1,2}\s*([A-Z]{3})\b/);
+  if (m) {
+    out.dest = m[2];
+  } else {
+    // 独立3字母大写，按出现顺序取第一个非噪音
+    const cands = t.match(/\b([A-Z]{3})\b/g);
+    if (cands) {
+      for (const c of cands) {
+        if (!NOISE_DEST.has(c)) { out.dest = c; break; }
+      }
+    }
+  }
+  // 兜底：如果没抓到3字母，抓中文字里的IATA代码（如"洛杉矶LAX"）
+  if (!out.dest) {
+    m = t.match(/[A-Z]{3}/);
+    if (m) out.dest = m[0];
+  }
+  out.dest = (out.dest || '').toUpperCase().slice(0,3);
+
+  // 体积 CBM（优先匹配带单位的）
+  m = t.match(/([\d.]+)\s*(CBM|cbm|方|立方米)/i);
+  if (m) out.volume = m[1];
+
+  // 毛重 KG
+  m = t.match(/([\d.]+)\s*(KGS?|kgs?|公斤)/i);
+  if (m) out.weight = m[1];
+
+  // 件数：数字+件/pcs/ctns/cartons/pallets/plts/pkgs/packages/cases/bags/drums/托/箱
+  m = t.match(/(\d+)\s*(件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|cases?|bags?|drums?|fiber\s*drums?|托|箱)/i);
+  if (m) out.pieces = m[1];
+
+  // 尺寸：数字*数字*数字（可能后面跟件数 如 110*75*75*3）
+  m = t.match(/(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*(?:[*xX×]\s*(\d+))?/i);
+  if (m) {
+    out.dims = `${m[1]}*${m[2]}*${m[3]}`;
+    if (m[4] && !out.pieces) out.pieces = m[4];
+    // 如果带CM/CBM单位且没体积，按件数自动算
+    if (!out.volume && out.pieces && /CM/i.test(t)) {
+      const L = parseFloat(m[1])/100, W = parseFloat(m[2])/100, H = parseFloat(m[3])/100, n = parseFloat(out.pieces);
+      out.volume = (L * W * H * n).toFixed(3);
+    }
+  }
+  // 小数尺寸（米为单位，如 1.2*1.2*1.2），自动×100转cm
+  if (!out.dims) {
+    m = t.match(/(\d+\.\d+)\s*[*xX×]\s*(\d+\.\d+)\s*[*xX×]\s*(\d+\.\d+)/);
+    if (m) {
+      const L = parseFloat(m[1])*100, W = parseFloat(m[2])*100, H = parseFloat(m[3])*100;
+      out.dims = `${L}*${W}*${H}`;
+      if (!out.volume && out.pieces) {
+        out.volume = (L/100 * W/100 * H/100 * parseFloat(out.pieces)).toFixed(2);
+      }
+    }
+  }
+
+  // 紧凑格式：DFW 3/360/3 = 3件/360kg/3方（兜底，仅在上面都没识别到时）
+  if (!out.pieces || !out.weight || !out.volume) {
+    m = t.match(/\b([A-Z]{3})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\b/);
+    if (m) {
+      // 第二个数字是重量（kg），第三个是体积（CBM），第一个是件数
+      if (!out.pieces) out.pieces = m[2];
+      if (!out.weight) out.weight = m[3];
+      if (!out.volume) out.volume = m[4];
+    }
+  }
+
+  return out;
+}
+
+// 多票拆分：一段文本里可能有多票，按目的港出现位置切段
+function parseTextMulti(text) {
+  let t = smartComma(text).trim();
+  if (!t) return [];
+
+  // 找所有 AAA--BBB / AAA-BBB / AAA/BBB 航线模式
+  const routeRe = /\b([A-Z]{3})\s*[-\/]{1,2}\s*([A-Z]{3})\b/g;
+  const routes = [];
+  let m;
+  while ((m = routeRe.exec(t)) !== null) {
+    routes.push({ start: m.index, end: routeRe.lastIndex, dest: m[2] });
+  }
+
+  // 找所有独立3字母大写（不在噪音、不在route内）
+  const standRe = /\b([A-Z]{3})\b/g;
+  const stands = [];
+  while ((m = standRe.exec(t)) !== null) {
+    if (NOISE_DEST.has(m[1])) continue;
+    const inRoute = routes.some(r => m.index >= r.start && m.index < r.end);
+    if (inRoute) continue;
+    stands.push({ start: m.index, end: m.index + 3, dest: m[1] });
+  }
+
+  // 合并所有"目的港起点"，按位置排序
+  const anchors = [...routes.map(r => ({start: r.start, dest: r.dest})), ...stands]
+    .sort((a,b) => a.start - b.start);
+
+  if (!anchors.length) return [parseText(t)];
+
+  // 按anchors切分
+  const segments = [];
+  for (let i = 0; i < anchors.length; i++) {
+    const start = anchors[i].start;
+    const end = i + 1 < anchors.length ? anchors[i+1].start : t.length;
+    segments.push({ dest: anchors[i].dest, text: t.slice(start, end) });
+  }
+
+  return segments.map(seg => {
+    const p = parseText(seg.text);
+    if (!p.dest) p.dest = seg.dest;
+    return p;
+  }).filter(p => p.dest);
+}
+
+// ---------- 计算：体积重 / 计费重 / 泡重比 ----------
+function calc(weight, volume) {
+  const w = parseFloat(weight) || 0;
+  const v = parseFloat(volume) || 0;
+  const volW = v * VOLUMETRIC_RATE;
+  const chargeW = Math.max(w, volW);
+  // 泡重比：每CBM多少kg = w/v （空运说的 1:300 就是 1CBM=300kg）
+  const ratio = v > 0 ? w / v : 0;
+  return { weight: w, volume: v, volW, chargeW, ratio };
+}
+
+// ---------- 相似询价匹配 ----------
+function findSimilar(inq, days) {
+  const all = loadAll();
+  const cutoff = daysAgoStr(days);
+  const c = calc(inq.weight, inq.volume);
+  return all.filter(o => {
+    if (o.id === inq.id) return false;
+    if (o.date < cutoff) return false;
+    if (!o.dest || o.dest.toUpperCase() !== (inq.dest||'').toUpperCase()) return false;
+    if (!o.quotes || o.quotes.length === 0) return false;
+    const oc = calc(o.weight, o.volume);
+    // 计费重 ±25%
+    if (c.chargeW > 0 && Math.abs(oc.chargeW - c.chargeW) / c.chargeW > 0.25) return false;
+    // 泡重比 ±30%（如果都>0）
+    if (c.ratio > 0 && oc.ratio > 0 && Math.abs(oc.ratio - c.ratio) / c.ratio > 0.3) return false;
+    return true;
+  }).sort((a,b) => b.date.localeCompare(a.date));
+}
+
+function adoptedPrice(inq) {
+  if (!inq.quotes) return null;
+  const ad = inq.quotes.find(q => q.is_adopted);
+  return ad || (inq.quotes[0] || null);
+}
+
+// ---------- 视图切换 ----------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    $('view-' + tab.dataset.view).classList.add('active');
+    if (tab.dataset.view === 'list') renderList();
+    if (tab.dataset.view === 'rates') { renderRateList(); renderAdjList(); updateAdjBanner(); }
+    if (tab.dataset.view === 'data') renderStats();  });
+});
+
+// ---------- 快速录入：解析 ----------
+let lastMultiParsed = null; // 多票解析结果缓存
+
+$('btnParse').addEventListener('click', () => {
+  const text = $('rawText').value.trim();
+  if (!text) { toast('请先粘贴询价文本'); return; }
+  const list = parseTextMulti(text);
+  if (!list.length) { toast('没识别到目的港，请检查'); return; }
+
+  // 隐藏单票卡片，多票卡片在 quickView 里动态生成
+  $('parsedCard').style.display = 'none';
+  $('similarCard').style.display = 'none';
+  const oldMulti = $('multiCard');
+  if (oldMulti) oldMulti.remove();
+
+  if (list.length === 1) {
+    // 单票：走原有界面
+    const p = list[0];
+    $('fDest').value = p.dest;
+    $('fPieces').value = p.pieces;
+    $('fWeight').value = p.weight;
+    $('fVolume').value = p.volume;
+    $('fDims').value = p.dims;
+    if (!$('fDate').value) $('fDate').value = todayStr();
+    $('parsedCard').style.display = 'block';
+    updateCalcBox();
+    updateSimilar();
+    updateRateMatch();
+  } else {
+    // 多票：显示预览表格
+    lastMultiParsed = list;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.id = 'multiCard';
+    card.innerHTML = `
+      <div class="card-title">识别出 <b style="color:var(--primary);margin:0 4px">${list.length}</b> 票询价（核对一下，不对的直接改）</div>
+      <div style="overflow-x:auto">
+      <table style="table-layout:fixed">
+        <colgroup>
+          <col style="width:14%"><col style="width:10%"><col style="width:14%">
+          <col style="width:14%"><col style="width:18%"><col style="width:15%"><col style="width:15%">
+        </colgroup>
+        <thead><tr>
+          <th>目的港</th><th>件数</th><th>毛重kg</th><th>体积CBM</th><th>尺寸</th><th>客户</th><th>备注</th>
+        </tr></thead>
+        <tbody>
+          ${list.map((p,i) => `<tr>
+            <td><input value="${p.dest}" data-i="${i}" data-k="dest" style="padding:6px 8px"></td>
+            <td><input value="${p.pieces}" data-i="${i}" data-k="pieces" style="padding:6px 8px"></td>
+            <td><input value="${p.weight}" data-i="${i}" data-k="weight" style="padding:6px 8px"></td>
+            <td><input value="${p.volume}" data-i="${i}" data-k="volume" style="padding:6px 8px"></td>
+            <td><input value="${p.dims}" data-i="${i}" data-k="dims" style="padding:6px 8px"></td>
+            <td><input value="" data-i="${i}" data-k="customer" style="padding:6px 8px" placeholder="可选"></td>
+            <td><input value="" data-i="${i}" data-k="remark" style="padding:6px 8px" placeholder="可选"></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-accent" id="btnSaveMulti">全部保存（${list.length}票）</button>
+      </div>
+    `;
+    $('view-quick').appendChild(card);
+
+    $('btnSaveMulti').addEventListener('click', () => {
+      // 读取表格里改后的值
+      const rows = card.querySelectorAll('tbody tr');
+      const all = loadAll();
+      rows.forEach((tr, i) => {
+        const rec = {
+          id: uid(),
+          date: todayStr(),
+          dest: '', pieces:0, weight:0, volume:0, dims:'',
+          customer:'', remark:'', raw_text:'', quotes:[]
+        };
+        tr.querySelectorAll('input').forEach(inp => {
+          const k = inp.dataset.k;
+          if (k === 'dest') rec.dest = inp.value.trim().toUpperCase();
+          else if (k === 'pieces') rec.pieces = parseFloat(inp.value) || 0;
+          else if (k === 'weight') rec.weight = parseFloat(inp.value) || 0;
+          else if (k === 'volume') rec.volume = parseFloat(inp.value) || 0;
+          else if (k === 'dims') rec.dims = inp.value.trim();
+          else if (k === 'customer') rec.customer = inp.value.trim();
+          else if (k === 'remark') rec.remark = inp.value.trim();
+        });
+        if (!rec.dest) return;
+        all.unshift(rec);
+      });
+      saveAll(all);
+      toast(`已保存 ${rows.length} 票，去"询价流水"填报价`);
+      $('rawText').value = '';
+      card.remove();
+      lastMultiParsed = null;
+    });
+  }
+});
+
+$('btnClear').addEventListener('click', () => {
+  $('rawText').value = '';
+  $('parsedCard').style.display = 'none';
+  $('similarCard').style.display = 'none';
+  $('rateMatchCard').style.display = 'none';
+  const mc = $('multiCard');
+  if (mc) mc.remove();
+  lastMultiParsed = null;
+});
+
+// 字段变化时实时重算和查相似
+['fWeight','fVolume'].forEach(id => {
+  $(id).addEventListener('input', () => { updateCalcBox(); updateSimilar(); updateRateMatch(); });
+});
+$('fDest').addEventListener('input', () => { updateSimilar(); updateRateMatch(); });
+
+// 尺寸自动算体积：输入 100*80*60*5 自动算 CBM 反填
+$('fDims').addEventListener('input', () => {
+  const v = $('fDims').value.trim();
+  const m = v.match(/^(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+)$/);
+  if (m) {
+    const L = parseFloat(m[1])/100, W = parseFloat(m[2])/100, H = parseFloat(m[3])/100, n = parseInt(m[4]);
+    const cbm = L * W * H * n;
+    if (!$('fVolume').value) $('fVolume').value = cbm.toFixed(2);
+    if (!$('fPieces').value) $('fPieces').value = n;
+    updateCalcBox(); updateSimilar(); updateRateMatch();
+  }
+});
+
+function updateCalcBox() {
+  const w = $('fWeight').value;
+  const v = $('fVolume').value;
+  if (!w && !v) { $('calcBox').style.display = 'none'; return; }
+  const c = calc(w, v);
+  $('calcBox').style.display = 'flex';
+  $('calcBox').innerHTML = `
+    <span>体积重 = ${fmtNum(c.volW,1)} kg（${fmtNum(c.volume,2)}方 × 167）</span>
+    <span>计费重 = <b>${fmtNum(c.chargeW,1)}</b> kg</span>
+    <span>泡重比 = <b>1:${fmtNum(c.ratio,0)}</b> kg/方</span>
+  `;
+}
+
+function updateSimilar() {
+  const dest = $('fDest').value.trim();
+  if (!dest) { $('similarCard').style.display = 'none'; return; }
+  const inq = {
+    id: 'preview',
+    dest,
+    weight: $('fWeight').value,
+    volume: $('fVolume').value,
+  };
+  const sims = findSimilar(inq, 7);
+  $('similarCard').style.display = sims.length ? 'block' : 'none';
+  $('similarCount').textContent = sims.length + ' 条';
+  const box = $('similarList');
+  if (!sims.length) { box.innerHTML = '<div class="empty">近7天没有同目的港、同规格的已报价询价</div>'; return; }
+  box.innerHTML = sims.map(s => {
+    const q = adoptedPrice(s);
+    const c = calc(s.weight, s.volume);
+    return `<div class="similar-item">
+      <div class="similar-left">
+        <div><b>${s.dest}</b> · ${s.pieces||'-'}件 · 毛重${fmtNum(c.weight,1)}kg · ${fmtNum(c.volume,2)}方 · 计费重${fmtNum(c.chargeW,0)}kg</div>
+        <div class="similar-meta">${s.date} · ${s.customer||''} ${s.remark?('· '+s.remark):''}</div>
+      </div>
+      <div class="similar-price">
+        ¥${q?fmtNum(q.price,2):'-'}<small>/kg</small>
+        <div class="similar-meta" style="text-align:right">${q?q.supplier:''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// 标准化目的港：去掉 (via NRT)、(...) 等括号注释
+function normalizeDest(d) {
+  return (d||'').toUpperCase().replace(/\s*\([^)]*\)\s*/g, '').trim();
+}
+
+// 按计费重匹配重量档 key（空运断点逻辑：就高不就低）
+// <100kg → 45KG档；100-299kg → 100KG档；300-499kg → 300KG档；500-999kg → 500KG档；≥1000 → 1000KG档
+function matchWeightKey(chargeW) {
+  if (chargeW < 100) return 'w45';
+  if (chargeW < 300) return 'w100';
+  if (chargeW < 500) return 'w300';
+  if (chargeW < 1000) return 'w500';
+  return 'w1000';
+}
+const WEIGHT_LABEL = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
+// DENSITY_LABEL 声明已移除（避免重复声明报错）
+
+function updateRateMatch() {
+  const dest = $('fDest').value.trim().toUpperCase();
+  const card = $('rateMatchCard');
+  if (!dest) { card.style.display = 'none'; return; }
+  const c = calc($('fWeight').value, $('fVolume').value);
+  const wk = matchWeightKey(c.chargeW);
+  const densityRatio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
+  const dk = matchDensityKey(densityRatio);
+
+  const sheets = loadRates();
+  const matches = [];
+  const missing = [];
+  sheets.forEach(s => {
+    if (!s.rows) return;
+    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+    s.rows.forEach(r => {
+      const rd = normalizeDest(r.dest);
+      const qd = normalizeDest(dest);
+      let hit = (rd === qd);
+      if (!hit && (rd.includes('/') || rd.includes(' '))) {
+        const parts = rd.split(/[\/\s]+/).filter(x => x.length === 3);
+        hit = parts.includes(qd);
+      }
+      if (!hit) return;
+
+      // 先从比重档取价，没有再用标准价
+      let base = undefined;
+      let densityUsed = null;
+      let effectiveWk = wk;
+      const hasDensity = r.densityPrices && Object.keys(r.densityPrices).length > 0;
+      if (hasDensity && r.densityPrices[dk] && r.densityPrices[dk][wk] !== undefined) {
+        base = r.densityPrices[dk][wk];
+        densityUsed = dk;
+      } else if (!hasDensity && r.prices && r.prices[wk] !== undefined) {
+        base = r.prices[wk]; // 没有比重档的表（如上海AA）
+      } else {
+        // 兜底：当前重量档没价，往低档位找最近的有价格的档（就低不就高）
+        const order = ['w1000','w500','w300','w100','w45'];
+        const idx = order.indexOf(wk);
+        for (let i = idx + 1; i < order.length; i++) {
+          const k = order[i];
+          if (hasDensity && r.densityPrices[dk] && r.densityPrices[dk][k] !== undefined) {
+            base = r.densityPrices[dk][k]; effectiveWk = k; break;
+          } else if (!hasDensity && r.prices && r.prices[k] !== undefined) {
+            base = r.prices[k]; effectiveWk = k; break;
+          }
+        }
+      }
+
+      if (base !== undefined) {
+        const final = base + adj;
+        matches.push({
+          airline: s.airline, sheetDate: s.date, weightKey: effectiveWk,
+          base, final, adj, matchedDest: (r.dest||'').trim(),
+          density: densityUsed, remark: r.remark || ''
+        });
+      } else {
+        const availW = r.prices ? Object.keys(r.prices) : [];
+        const availD = r.densityPrices ? Object.keys(r.densityPrices) : [];
+        if (availW.length || availD.length) {
+          missing.push({
+            airline: s.airline, matchedDest: (r.dest||'').trim(),
+            avail: `重量档:${availW.map(k=>WEIGHT_LABEL[k]).join('/')||'无'} 比重档:${availD.join('/')||'无'}`,
+            sheetDate: s.date
+          });
+        }
+      }
+    });
+  });
+
+  $('rateMatchCount').textContent = matches.length + ' 条';
+  // 存最低价供保存时用
+  if (matches.length) {
+    const best = matches.sort((a,b) => a.final - b.final)[0];
+    window.__currentRatePrice = best.final;
+    window.__currentRateAirline = best.airline;
+    window.__currentRateDensity = best.density || null;
+  } else {
+    window.__currentRatePrice = null;
+    window.__currentRateAirline = null;
+    window.__currentRateDensity = null;
+  }
+  card.style.display = (matches.length || missing.length) ? 'block' : 'none';
+  const box = $('rateMatchList');
+  if (!matches.length && !missing.length) {
+    const allDests = sheets.flatMap(s => s.rows ? s.rows.map(r => r.dest) : []);
+    let dbg = `<div class="empty">表价库里没有 ${dest} 的当前价格</div>`;
+    dbg += `<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;color:var(--text-3)">`;
+    dbg += `表价库共 ${allDests.length} 个目的港：${allDests.slice(0,20).join(', ')}${allDests.length>20?'...':''}`;
+    const row = sheets.flatMap(s => s.rows||[]).find(r => normalizeDest(r.dest) === dest);
+    if (row) dbg += `<br>${dest} 入库：标准=${JSON.stringify(row.prices)} 比重=${JSON.stringify(row.densityPrices||{})}`;
+    dbg += `</div>`;
+    box.innerHTML = dbg;
+    return;
+  }
+  let html = matches.sort((a,b) => a.final - b.final).map(m => `
+    <div class="similar-item" style="${m.final === matches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
+      <div class="similar-left">
+        <div><b>${m.airline}</b> · ${m.matchedDest} · ${WEIGHT_LABEL[m.weightKey]}档${m.density ? ` · ${DENSITY_LABEL[m.density]}` : ''}${m.adj!==0?`（优惠${m.adj>0?'+':''}${m.adj}）`:''}</div>
+        <div class="similar-meta">表价生效 ${m.sheetDate}${m.remark?(' · '+m.remark):''}</div>
+      </div>
+      <div class="similar-price">
+        ¥${fmtNum(m.final,2)}<small>/kg</small>
+        ${m.adj!==0?`<div class="similar-meta" style="text-align:right">原价 ${m.base}</div>`:''}
+      </div>
+    </div>
+  `).join('');
+  if (missing.length) {
+    html += '<div style="margin-top:10px;padding:10px 14px;background:var(--bg);border-radius:6px;font-size:12.5px;color:var(--text-2)">';
+    html += '<div style="font-weight:600;margin-bottom:6px">⚠ 同目的港其他档有效价格（供参考）：</div>';
+    missing.forEach(m => {
+      html += `<div style="margin:2px 0"><b>${m.airline} ${m.matchedDest}</b>：${m.avail} <span style="color:var(--text-3)">（${m.sheetDate}）</span></div>`;
+    });
+    html += '</div>';
+  }
+  box.innerHTML = html;
+}
+
+// ---------- 保存 ----------
+// 从询价数据跳转到成本计算，自动填参数
+$('btnToCost').addEventListener('click', () => {
+  const vol = parseFloat($('fVolume').value) || 0;
+  const gw = parseFloat($('fWeight').value) || 0;
+  if (!vol && !gw) { toast('请先解析询价数据'); return; }
+  $('ccVolume').value = vol ? vol.toFixed(4) : '';
+  $('ccGW').value = gw ? gw : '';
+  ccRefresh();
+  // 切到成本计算tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelector('.tab[data-view="cost"]').classList.add('active');
+  $('view-cost').classList.add('active');
+});
+
+$('btnSave').addEventListener('click', () => {  const dest = $('fDest').value.trim().toUpperCase();
+  if (!dest) { toast('请填目的港'); return; }
+  const rec = {
+    id: uid(),
+    date: $('fDate').value || todayStr(),
+    dest,
+    pieces: parseFloat($('fPieces').value) || 0,
+    weight: parseFloat($('fWeight').value) || 0,
+    volume: parseFloat($('fVolume').value) || 0,
+    dims: $('fDims').value.trim(),
+    customer: $('fCustomer').value.trim(),
+    remark: $('fRemark').value.trim(),
+    raw_text: $('rawText').value.trim(),
+    quotes: [],
+    ratePrice: window.__currentRatePrice || null,  // 自动匹配的表价
+    rateAirline: window.__currentRateAirline || null,
+    rateDensity: window.__currentRateDensity || null
+  };
+  const all = loadAll();
+  all.unshift(rec);
+  saveAll(all);
+  toast('已保存，现在可以去"询价流水"里填报价');
+  // 清空表单
+  $('rawText').value = '';
+  $('parsedCard').style.display = 'none';
+  $('similarCard').style.display = 'none';
+  ['fPieces','fWeight','fVolume','fDims','fCustomer','fRemark'].forEach(id => $(id).value = '');
+});
+
+// ---------- 询价流水列表 ----------
+function renderList() {
+  const all = loadAll();
+  const days = parseInt($('filterDays').value);
+  const status = $('filterStatus').value;
+  const kw = $('searchBox').value.trim().toLowerCase();
+  const cutoff = days > 0 ? daysAgoStr(days) : '0000-00-00';
+
+  const filtered = all.filter(r => {
+    if (r.date < cutoff) return false;
+    if (status === 'quoted' && (!r.quotes || !r.quotes.length)) return false;
+    if (status === 'pending' && r.quotes && r.quotes.length) return false;
+    if (kw) {
+      const hay = (r.dest+' '+(r.customer||'')+' '+(r.remark||'')).toLowerCase();
+      if (!hay.includes(kw)) return false;
+    }
+    return true;
+  }).sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+
+  const tbody = $('listBody');
+  $('listEmpty').style.display = filtered.length ? 'none' : 'block';
+  tbody.innerHTML = filtered.map(r => {
+    const c = calc(r.weight, r.volume);
+    const q = adoptedPrice(r);
+    return `<tr>
+      <td>${r.date.slice(5)}</td>
+      <td><b>${r.dest}</b></td>
+      <td>${r.pieces||'-'}</td>
+      <td>${fmtNum(c.weight,0)}</td>
+      <td>${fmtNum(c.volume,2)}</td>
+      <td>${fmtNum(c.chargeW,0)}</td>
+      <td>${c.ratio>0?('1:'+fmtNum(c.ratio,0)):'-'}</td>
+      <td>${r.customer||''}${r.remark?('<span style="color:var(--text-3)"> · '+r.remark+'</span>'):''}</td>
+      <td>${r.ratePrice?('<span class="adopted-price">¥'+fmtNum(r.ratePrice,2)+'</span><div style="font-size:11px;color:var(--text-3)">'+(r.rateAirline||'')+'</div>'):'<span class="tag tag-gray">-</span>'}</td>
+      <td>${r.outerPrice?('<span style="color:var(--accent)">¥'+fmtNum(r.outerPrice,2)+'</span>'+(r.outerSupplier?'<br><span style="font-size:11px;color:var(--text-3)">'+r.outerSupplier+'</span>':'')):'<span class="tag tag-gray">-</span>'}</td>
+      <td>${r.customerPrice?('<b style="color:var(--primary)">¥'+fmtNum(r.customerPrice,2)+'</b>'):'<span class="tag tag-gray">-</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" data-id="${r.id}">详情</button></td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('button[data-id]').forEach(btn => {
+    btn.addEventListener('click', () => openDetail(btn.dataset.id));
+  });
+}
+$('searchBox').addEventListener('input', renderList);
+$('filterDays').addEventListener('change', renderList);
+$('filterStatus').addEventListener('change', renderList);
+
+// ---------- 详情弹窗（加报价） ----------
+function openDetail(id) {
+  const all = loadAll();
+  const r = all.find(x => x.id === id);
+  if (!r) return;
+  const c = calc(r.weight, r.volume);
+  $('modalTitle').textContent = `${r.dest} · ${r.date}${r.customer?(' · '+r.customer):''}`;
+  $('modalBody').innerHTML = `
+    <div style="background:var(--bg);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:13.5px">
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px">
+        <span>件数 <b>${r.pieces||'-'}</b></span>
+        <span>毛重 <b>${fmtNum(c.weight,1)} kg</b></span>
+        <span>体积 <b>${fmtNum(c.volume,2)} CBM</b></span>
+        <span>尺寸 <b>${r.dims||'-'}</b></span>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;color:var(--primary)">
+        <span>体积重 ${fmtNum(c.volW,1)}kg</span>
+        <span>计费重 <b>${fmtNum(c.chargeW,1)}kg</b></span>
+        <span>泡重比 <b>1:${fmtNum(c.ratio,0)}</b></span>
+      </div>
+      ${r.remark?('<div style="margin-top:6px;color:var(--text-2)">备注：'+r.remark+'</div>'):''}
+      ${r.raw_text?('<div style="margin-top:6px;color:var(--text-3);font-size:12px">原文：'+r.raw_text+'</div>'):''}
+    </div>
+
+    <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:6px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-weight:600;width:60px">表价</span>
+        <span style="color:var(--green);font-size:16px">${r.ratePrice?('¥'+fmtNum(r.ratePrice,2)+' /kg'):'-'}</span>
+        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${r.rateAirline}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}</span>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <span style="font-weight:600;width:60px">外配</span>
+        <input id="fOuterSupplier" type="text" value="${r.outerSupplier||''}" placeholder="供应商名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <input id="fOuterPrice" type="number" step="0.1" value="${r.outerPrice||''}" placeholder="成本 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <button class="btn btn-ghost btn-sm" id="btnSaveOuter">保存</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <span style="font-weight:600;width:60px">卖价</span>
+        <input id="fCustomerName" type="text" value="${r.customer||''}" placeholder="客户名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <input id="fCustomerPrice" type="number" step="0.1" value="${r.customerPrice||''}" placeholder="卖价 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <button class="btn btn-ghost btn-sm" id="btnSaveCustPrice">保存</button>
+      </div>
+      ${r.ratePrice && r.customerPrice ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:13px">
+        毛利：<b style="color:var(--primary)">¥${(r.customerPrice - Math.min(r.ratePrice, r.outerPrice||999)).toFixed(2)}/kg</b>
+        （单票约 ¥${((r.customerPrice - Math.min(r.ratePrice, r.outerPrice||999)) * c.chargeW).toFixed(0)}）
+      </div>`:''}
+    </div>
+
+    <!-- 旧的供应商报价模块已废弃，用外配替代 -->
+    <div id="quoteList" style="display:none"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm" id="btnDetailToCost">计算成本</button>
+      <button class="btn btn-danger btn-sm" id="btnDelInq">删除这条询价</button>
+    </div>
+  `;
+  renderQuotes(r);
+
+  // 旧的添加报价按钮已废弃，跳过绑定
+  if ($('btnAddQuote')) {
+    $('btnAddQuote').addEventListener('click', () => {
+      const sup = $('qSupplier').value.trim();
+      const price = parseFloat($('qPrice').value);
+      if (!sup || isNaN(price)) { toast('请填供应商和单价'); return; }
+      r.quotes = r.quotes || [];
+      r.quotes.push({
+        supplier: sup, price,
+        extra: $('qCharge').value.trim(),
+        remark: $('qRemark').value.trim(),
+        is_adopted: r.quotes.length === 0
+      });
+      saveAll(all);
+      if (typeof renderQuotes === 'function') renderQuotes(r);
+      $('qSupplier').value = $('qPrice').value = $('qCharge').value = $('qRemark').value = '';
+      toast('已加报价');
+    });
+  }
+
+  $('btnSaveOuter').addEventListener('click', () => {
+    const v = parseFloat($('fOuterPrice').value);
+    r.outerPrice = isNaN(v) ? null : v;
+    r.outerSupplier = $('fOuterSupplier').value.trim();
+    saveAll(all);
+    toast('外配价已保存');
+    renderList();
+    closeModal();
+    openDetail(r.id); // 刷新显示毛利
+  });
+
+  $('btnSaveCustPrice').addEventListener('click', () => {
+    const v = parseFloat($('fCustomerPrice').value);
+    r.customerPrice = isNaN(v) ? null : v;
+    r.customer = $('fCustomerName').value.trim();
+    saveAll(all);
+    toast('客户报价已保存');
+    renderList();
+    closeModal();
+    openDetail(r.id);
+  });
+
+  $('btnDetailToCost').addEventListener('click', () => {
+    $('ccVolume').value = r.volume ? r.volume.toFixed(4) : '';
+    $('ccGW').value = r.weight ? r.weight : '';
+    ccRefresh();
+    closeModal();
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelector('.tab[data-view="cost"]').classList.add('active');
+    $('view-cost').classList.add('active');
+  });
+
+  $('btnDelInq').addEventListener('click', () => {
+    if (!confirm('确定删除这条询价？')) return;
+    const idx = all.findIndex(x => x.id === id);
+    all.splice(idx, 1);
+    saveAll(all);
+    closeModal();
+    renderList();
+    toast('已删除');
+  });
+
+  $('modalMask').classList.add('show');
+}
+
+function renderQuotes(r) {
+  const box = $('quoteList');
+  if (!r.quotes || !r.quotes.length) {
+    box.innerHTML = '<div class="empty">还没有报价</div>';
+    return;
+  }
+  box.innerHTML = r.quotes.map((q, i) => `
+    <div class="similar-item" style="${q.is_adopted?'border-color:var(--green);background:var(--green-soft)':''}">
+      <div class="similar-left">
+        <b>${q.supplier}</b>
+        <span style="margin-left:8px;color:var(--text-2);font-size:13px">${q.remark||''}</span>
+        ${q.extra?('<div class="similar-meta">其他费用：'+q.extra+'</div>'):''}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:17px;font-weight:700">¥${fmtNum(q.price,2)}<small style="font-size:12px;color:var(--text-3)">/kg</small></span>
+        ${q.is_adopted?'<span class="tag tag-green">采用</span>':`<button class="btn btn-ghost btn-sm" data-adopt="${i}">采用</button>`}
+        <button class="btn btn-ghost btn-sm" data-del="${i}" style="color:var(--red)">删</button>
+      </div>
+    </div>
+  `).join('');
+
+  box.querySelectorAll('[data-adopt]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      r.quotes.forEach((q,j) => q.is_adopted = (j == btn.dataset.adopt));
+      saveAll(loadAll().map(x => x.id === r.id ? r : x));
+      renderQuotes(r);
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      r.quotes.splice(btn.dataset.del, 1);
+      saveAll(loadAll().map(x => x.id === r.id ? r : x));
+      renderQuotes(r);
+    });
+  });
+}
+
+function closeModal() { $('modalMask').classList.remove('show'); }
+$('modalClose').addEventListener('click', closeModal);
+$('modalMask').addEventListener('click', (e) => { if (e.target === $('modalMask')) closeModal(); });
+
+// ---------- 数据管理 ----------
+$('btnExport').addEventListener('click', () => {
+  const payload = {
+    version: 1,
+    exportDate: new Date().toISOString(),
+    inquiries: loadAll(),
+    rateSheets: loadRates(),
+    adjustments: loadAdjs()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `空运货代工具备份_${todayStr()}.json`;
+  a.click();
+  toast(`已导出 ${payload.inquiries.length} 条询价 + ${payload.rateSheets.length} 张表价`);
+});
+
+$('btnImport').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      // 兼容旧格式（纯数组）
+      const inquiries = Array.isArray(data) ? data : (data.inquiries || []);
+      const rateSheets = data.rateSheets || [];
+      const adjustments = data.adjustments || [];
+      if (!confirm(`将导入 ${inquiries.length} 条询价 + ${rateSheets.length} 张表价，与现有数据合并（按ID去重）。继续？`)) return;
+      // 合并询价
+      const cur = loadAll();
+      const map = {};
+      cur.forEach(x => map[x.id] = x);
+      inquiries.forEach(x => { if (x.id && !map[x.id]) map[x.id] = x; });
+      saveAll(Object.values(map));
+      // 合并表价
+      if (rateSheets.length) {
+        const curR = loadRates();
+        const rMap = {};
+        curR.forEach(x => rMap[x.id] = x);
+        rateSheets.forEach(x => { if (x.id && !rMap[x.id]) rMap[x.id] = x; });
+        saveRates(Object.values(rMap));
+      }
+      // 合并优惠
+      if (adjustments.length) {
+        const curA = loadAdjs();
+        const aMap = {};
+        curA.forEach(x => aMap[x.id] = x);
+        adjustments.forEach(x => { if (x.id && !aMap[x.id]) aMap[x.id] = x; });
+        saveAdjs(Object.values(aMap));
+      }
+      toast('导入完成');
+    } catch(err) {
+      toast('导入失败：' + err.message);
+    }
+  };
+  reader.readAsText(f);
+});
+
+$('btnWipe').addEventListener('click', () => {
+  if (!confirm('确定清空全部数据？建议先导出备份。')) return;
+  if (!confirm('再次确认：所有询价记录、表价、优惠都将被删除，不可恢复！')) return;
+  localStorage.removeItem(STORE_KEY);
+  localStorage.removeItem('af_rate_sheets_v1');
+  localStorage.removeItem('af_adjustments_v1');
+  renderList(); renderRateList(); renderAdjList(); updateAdjBanner();
+  toast('已清空');
+});
+
+function renderStats() {
+  const all = loadAll();
+  const quoted = all.filter(r => r.quotes && r.quotes.length).length;
+  const pending = all.length - quoted;
+  $('statsBox').innerHTML = `
+    <div>总记录：<b>${all.length}</b> 条</div>
+    <div style="margin-top:4px">已报价：<b style="color:var(--green)">${quoted}</b> 条</div>
+    <div style="margin-top:4px">未报价：<b style="color:var(--accent)">${pending}</b> 条</div>
+  `;
+}
+
+// ---------- 航司表价：存储 ----------
+const RATE_KEY = 'af_rate_sheets_v1';
+function loadRates() {
+  try { return JSON.parse(localStorage.getItem(RATE_KEY)) || []; }
+  catch(e) { return []; }
+}
+function saveRates(list) {
+  localStorage.setItem(RATE_KEY, JSON.stringify(list));
+  syncToCloud('/api/rates', list);
+}
+
+// 判断 ExcelJS 单元格字体是否为灰色（无效价）
+// 注意：同一单元格可能同时有黑色新价和灰色旧价，不能因为有灰色就把整个单元格过滤
+function isGrayCellEX(cell) {
+  const font = cell && cell.font;
+  if (!font || !font.color) return false; // 无颜色=默认黑色，有效
+  const c = font.color;
+
+  // argb 方式
+  if (c.argb && typeof c.argb === 'string') {
+    const argb = c.argb.toUpperCase();
+    // 去掉可能的FF前缀
+    const hex = argb.length === 8 ? argb.slice(2) : argb;
+    if (/^[0-9A-F]{6}$/.test(hex)) {
+      const r = parseInt(hex.substr(0,2),16);
+      const g = parseInt(hex.substr(2,2),16);
+      const b = parseInt(hex.substr(4,2),16);
+      // 红色（R高G/B低）= 特价，有效
+      if (r > 180 && g < 100 && b < 100) return false;
+      // 黑色（接近0）= 有效
+      if (r < 80 && g < 80 && b < 80) return false;
+      // 只有非常浅的灰（R=G=B 且 200-240）才判为无效
+      if (Math.abs(r-g) < 15 && Math.abs(g-b) < 15 && r >= 200 && r <= 240) return true;
+    }
+  }
+
+  // theme 方式：theme=0 是浅色文字主题，tint负数越深越灰
+  // 放宽：只有 tint < -0.3（明显深灰）才判无效，-0.1~-0.3 的浅灰不判
+  if (c.theme === 0 && typeof c.tint === 'number' && c.tint < -0.3) return true;
+  // theme=1 = 黑色文字，有效
+  if (c.theme === 1) return false;
+
+  return false;
+}
+
+// 比重区间匹配：返回 density key，如 "200+" / "150-" / "std"（150-200标准价）
+function matchDensityKey(ratio) {
+  if (ratio >= 800) return '800+';
+  if (ratio >= 500) return '500+';
+  if (ratio >= 300) return '300+';
+  if (ratio >= 200) return '200+';
+  if (ratio >= 150) return 'std'; // 150-200 标准价
+  if (ratio >= 140) return '150-';
+  if (ratio >= 130) return '140-';
+  if (ratio >= 120) return '130-';
+  if (ratio >= 100) return '120-';
+  return '100-';
+}
+const DENSITY_LABEL = { '200+':'1:200+','300+':'1:300+','500+':'1:500+','800+':'1:800+','150-':'1:150-','140-':'1:140-','130-':'1:130-','120-':'1:120-','100-':'1:100-','std':'标准(150-200)' };
+
+// 解析 ExcelJS worksheet 为牌价行
+async function parseRateSheetToRowsEX(worksheet) {
+  const rowCount = worksheet.rowCount;
+  const colCount = worksheet.columnCount;
+
+  // 收集 grid：[rowIndex][colIndex] = cell对象
+  const grid = [];
+  for (let R = 1; R <= rowCount; R++) {
+    const row = worksheet.getRow(R);
+    const rowData = [];
+    for (let C = 1; C <= colCount; C++) {
+      rowData.push(row.getCell(C));
+    }
+    grid.push(rowData);
+  }
+
+  // 取单元格文本值
+  function cellText(cell) {
+    if (!cell || cell.value === null || cell.value === undefined) return '';
+    if (typeof cell.value === 'object' && cell.value.richText) {
+      // 富文本（部分灰部分黑），拼起来
+      return cell.value.richText.map(t => t.text).join('');
+    }
+    if (typeof cell.value === 'object' && cell.value.result !== undefined) return String(cell.value.result);
+    return String(cell.value).trim();
+  }
+  function cellNum(cell) {
+    if (!cell || cell.value === null || cell.value === undefined) return null;
+    if (typeof cell.value === 'object') return null;
+    const v = parseFloat(cell.value);
+    return isNaN(v) ? null : v;
+  }
+
+  // 找表头行
+  let headerIdx = -1;
+  let headers = [];
+  for (let i = 0; i < Math.min(grid.length, 20); i++) {
+    const r = grid[i].map(c => cellText(c).toUpperCase());
+    if (r.some(c => c.includes('ORIGIN')) && r.some(c => c.includes('DEST'))) {
+      headerIdx = i; headers = r; break;
+    }
+  }
+  if (headerIdx < 0) throw new Error('没找到表头行（需要含 ORIGIN 和 DESTINATION）');
+
+  const col = {};
+  headers.forEach((h, i) => {
+    if (h.includes('ORIGIN')) col.origin = i;
+    else if (h.includes('DEST')) col.dest = i;
+    else if (h.includes('CUR')) col.cur = i;
+    else if (/^45\s*KG/.test(h)) col.w45 = i;
+    else if (/^100\s*KG/.test(h)) col.w100 = i;
+    else if (/^300\s*KG/.test(h)) col.w300 = i;
+    else if (/^500\s*KG/.test(h)) col.w500 = i;
+    else if (/^1000\s*KG/.test(h) || h.includes('1000')) col.w1000 = i;
+    else if (h.includes('REMARK') || h.includes('NOTE')) col.remark = i;
+  });
+  if (col.dest === undefined) throw new Error('没找到目的港列');
+
+  const weightCols = ['w45','w100','w300','w500','w1000'].filter(k => col[k] !== undefined);
+  const merged = {};
+  let lastDestKey = null; // 比重行挂到上一个目的港
+
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const row = grid[i];
+    const destCell = row[col.dest];
+    const rawDest = cellText(destCell);
+    if (!rawDest || /^(TOTAL|合计|小计)/i.test(rawDest)) continue;
+
+    // 识别比重行：DESTINATION 是 "1:200+" / "1:150-" 这种格式
+    const densityMatch = rawDest.match(/^1:(\d+)\s*([+-])\s*$/);
+
+    // 按字体颜色取价格
+    const prices = {};
+    weightCols.forEach(k => {
+      const cell = row[col[k]];
+      const v = cellNum(cell);
+      if (v === null) return;
+      if (isGrayCellEX(cell)) return;
+      prices[k] = v;
+    });
+    if (Object.keys(prices).length === 0) continue;
+
+    if (densityMatch && lastDestKey) {
+      // 比重行：挂到上一个目的港的 densityPrices
+      const dKey = densityMatch[1] + densityMatch[2]; // "200+" / "150-"
+      const rec = merged[lastDestKey];
+      if (!rec.densityPrices) rec.densityPrices = {};
+      if (!rec.densityPrices[dKey]) rec.densityPrices[dKey] = {};
+      weightCols.forEach(k => {
+        if (prices[k] !== undefined) rec.densityPrices[dKey][k] = prices[k];
+      });
+      continue;
+    }
+
+    // 正常目的港行
+    let destCandidates = [rawDest];
+    if (rawDest.includes('/')) {
+      destCandidates = rawDest.split('/').map(s => s.trim()).filter(s => s.length >= 3);
+    }
+    if (!destCandidates.length) continue;
+
+    destCandidates.forEach(vd => {
+      const vKey = normalizeDest(vd);
+      if (!merged[vKey]) {
+        merged[vKey] = {
+          origin: col.origin !== undefined ? cellText(row[col.origin]).toUpperCase() : '',
+          dest: vKey,
+          displayName: vd,
+          prices: {},
+          densityPrices: {},
+          remarks: []
+        };
+      }
+      const rec = merged[vKey];
+      weightCols.forEach(k => {
+        if (prices[k] !== undefined && rec.prices[k] === undefined) {
+          rec.prices[k] = prices[k];
+        }
+      });
+      const remark = col.remark !== undefined ? cellText(row[col.remark]) : '';
+      if (remark && !rec.remarks.includes(remark)) rec.remarks.push(remark);
+      lastDestKey = vKey; // 记录当前目的港，供后面比重行挂载
+    });
+  }
+
+  const out = Object.values(merged);
+  out.forEach(r => { r.remark = r.remarks.join('；'); });
+  return out;
+}
+
+let parsedRows = null; // 预览缓存
+
+// Excel 导入
+$('btnImportExcel').addEventListener('click', () => $('excelFile').click());
+
+// 手动新增表价
+$('btnManualRate').addEventListener('click', () => {
+  const airline = $('rateAirline').value.trim() || prompt('航司代码（如 LH / CZ）：');
+  if (!airline) return;
+  const date = $('rateDate').value || todayStr();
+  const dest = prompt('目的港三字代码（如 MUC / FRA / LAX）：');
+  if (!dest) return;
+  const w100 = parseFloat(prompt('100KG档价格（元/kg，没有填0）：') || 0);
+  const w300 = parseFloat(prompt('300KG档价格：') || 0);
+  const w500 = parseFloat(prompt('500KG档价格：') || 0);
+  const w1000 = parseFloat(prompt('1000KG档价格：') || 0);
+  const sheets = loadRates();
+  let sheet = sheets.find(s => s.airline === airline && s.date === date);
+  if (!sheet) {
+    sheet = { airline, date, rows: [], img: null };
+    sheets.push(sheet);
+  }
+  const prices = {};
+  if (w100 > 0) prices.w100 = w100;
+  if (w300 > 0) prices.w300 = w300;
+  if (w500 > 0) prices.w500 = w500;
+  if (w1000 > 0) prices.w1000 = w1000;
+  sheet.rows.push({ dest: dest.toUpperCase(), prices, remark: '手动录入' });
+  saveRates(sheets);
+  renderRateList(); renderAdjList(); updateAdjBanner();
+  toast(`已添加 ${dest} 到 ${airline} 表价`);
+});
+$('excelFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const buf = await f.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buf);
+    // 遍历所有 sheet，跳过明显不是价格表的（City Compress list 这种）
+    let allRows = [];
+    for (const worksheet of workbook.worksheets) {
+      const sheetName = worksheet.name || '';
+      if (/city\s*compress/i.test(sheetName)) continue;
+      try {
+        const rows = await parseRateSheetToRowsEX(worksheet);
+        allRows = allRows.concat(rows);
+      } catch(err) {
+        // 某个sheet解析失败（比如没有表头），跳过
+        console.log('sheet跳过:', sheetName, err.message);
+      }
+    }
+    parsedRows = allRows;
+    if (!parsedRows.length) throw new Error('没解析到有效数据行');
+    showRatePreview(parsedRows);
+    toast(`识别到 ${parsedRows.length} 个目的港有效价格（灰色字体已自动过滤）`);
+  } catch(err) {
+    toast('解析失败：' + err.message);
+  }
+  e.target.value = '';
+});
+
+function showRatePreview(rows) {
+  // 动态决定重量档列
+  const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k => rows.some(r => r.prices[k] !== undefined));
+  const weightLabels = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
+  let html = '<thead><tr><th>目的港</th>';
+  weightKeys.forEach(k => html += `<th>${weightLabels[k]}</th>`);
+  html += '<th>备注</th></tr></thead><tbody>';
+  rows.slice(0, 200).forEach(r => {
+    html += `<tr><td><b>${r.dest}</b></td>`;
+    weightKeys.forEach(k => html += `<td>${r.prices[k] !== undefined ? r.prices[k] : '-'}</td>`);
+    html += `<td style="font-size:12px;color:var(--text-2)">${r.remark||''}</td></tr>`;
+  });
+  html += '</tbody>';
+  $('ratePreviewTable').innerHTML = html;
+  $('ratePreviewCard').style.display = 'block';
+}
+
+$('btnCancelRate').addEventListener('click', () => {
+  parsedRows = null;
+  $('ratePreviewCard').style.display = 'none';
+});
+
+$('btnSaveRate').addEventListener('click', () => {
+  if (!parsedRows || !parsedRows.length) return;
+  const airline = $('rateAirline').value.trim().toUpperCase();
+  if (!airline) { toast('请填航司代码'); return; }
+  const sheet = {
+    id: uid(),
+    airline,
+    date: $('rateDate').value || todayStr(),
+    expiry: $('rateExpiry').value || '',
+    origin: 'PVG',
+    rows: parsedRows,
+    image: '', // 预留截图
+    created_at: new Date().toISOString()
+  };
+  const all = loadRates();
+  all.unshift(sheet);
+  saveRates(all);
+  toast(`已保存 ${parsedRows.length} 条 ${airline} 表价`);
+  parsedRows = null;
+  $('ratePreviewCard').style.display = 'none';
+  renderRateList();
+});
+
+// 截图上传（存证）
+$('btnUploadImg').addEventListener('click', () => $('imgFile').click());
+$('imgFile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 2 * 1024 * 1024) {
+    toast('图片太大（>2MB），请压缩后再传');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    // 存到一条新牌价里（用户手填航司）
+    const airline = $('rateAirline').value.trim().toUpperCase();
+    if (!airline) { toast('请先在上面填航司代码'); return; }
+    const sheet = {
+      id: uid(),
+      airline,
+      date: $('rateDate').value || todayStr(),
+      expiry: $('rateExpiry').value || '',
+      origin: 'PVG',
+      rows: [],
+      image: ev.target.result, // base64
+      note: '手动录入，请点开后填价格',
+      created_at: new Date().toISOString()
+    };
+    const all = loadRates();
+    all.unshift(sheet);
+    saveRates(all);
+    toast('截图已存证，点下面列表里这条去填价格');
+    renderRateList();
+  };
+  reader.readAsDataURL(f);
+  e.target.value = '';
+});
+
+// 牌价列表
+function renderRateList() {
+  const all = loadRates();
+  const tbody = $('rateListBody');
+  $('rateListEmpty').style.display = all.length ? 'none' : 'block';
+  tbody.innerHTML = all.map(s => {
+    const adj = currentAdjFor(s.airline);
+    const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
+    return `
+    <tr>
+      <td><b>${s.airline}</b> ${adjTag}</td>
+      <td>${s.date}</td>
+      <td>${s.expiry || '-'}</td>
+      <td>${s.image ? '<span class="tag tag-orange">含截图</span>' : ''} ${s.note ? '<span style="color:var(--text-3);font-size:12px">'+s.note+'</span>' : ''}</td>
+      <td>${s.rows ? s.rows.length : 0} 条</td>
+      <td>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="view">查看</button>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="adj" style="color:var(--accent)">优惠</button>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="del" style="color:var(--red)">删</button>
+      </td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('button[data-act="view"]').forEach(b => b.addEventListener('click', () => openRateDetail(b.dataset.id)));
+  tbody.querySelectorAll('button[data-act="adj"]').forEach(b => b.addEventListener('click', () => {
+    const s = loadRates().find(x => x.id === b.dataset.id);
+    if (!s) return;
+    // 直接打开优惠弹窗，预填航司
+    $('adjAirline').value = s.airline;
+    renderAdjList();
+    $('adjModalMask').classList.add('show');
+  }));
+  tbody.querySelectorAll('button[data-act="del"]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('删除这张牌价表？')) return;
+    const cur = loadRates().filter(x => x.id !== b.dataset.id);
+    saveRates(cur);
+    renderRateList();
+  }));
+}
+
+// ---------- 临时调价：存储与逻辑 ----------
+const ADJ_KEY = 'af_adjustments_v1';
+function loadAdjs() {
+  try { return JSON.parse(localStorage.getItem(ADJ_KEY)) || []; }
+  catch(e) { return []; }
+}
+function saveAdjs(list) {
+  localStorage.setItem(ADJ_KEY, JSON.stringify(list));
+  syncToCloud('/api/adjustments', list);
+}
+
+// 查某航司当前生效的调价（可叠加多个）
+function currentAdjFor(airline, date) {
+  const d = date || todayStr();
+  return loadAdjs().filter(a =>
+    a.airline === airline && a.date <= d && (!a.expiry || a.expiry >= d)
+  ).reduce((sum, a) => sum + a.delta, 0);
+}
+
+$('btnAddAdj').addEventListener('click', () => {
+  const airline = $('adjAirline').value.trim().toUpperCase();
+  if (!airline) { toast('请填航司代码'); return; }
+  const delta = parseFloat($('adjDelta').value);
+  if (isNaN(delta)) { toast('请填调整金额（如 -5 或 +3）'); return; }
+  const adj = {
+    id: uid(),
+    airline,
+    delta: delta,
+    date: todayStr(),
+    expiry: $('adjExpiry').value || '',
+    created_at: new Date().toISOString()
+  };
+  const all = loadAdjs();
+  all.unshift(adj);
+  saveAdjs(all);
+  toast(`已添加 ${airline} ${delta>0?'+':''}${delta} 限时优惠`);
+  $('adjAirline').value = '';
+  $('adjDelta').value = '';
+  $('adjExpiry').value = '';
+  renderAdjList();
+  renderRateList();
+  updateAdjBanner();
+});
+
+function renderAdjList() {
+  const all = loadAdjs();
+  const today = todayStr();
+  const box = $('adjListBody');
+  const empty = $('adjListEmpty');
+  const active = all.filter(a => !a.expiry || a.expiry >= today);
+  empty.style.display = active.length ? 'none' : 'block';
+  box.innerHTML = active.map(a => `
+    <div class="similar-item">
+      <div class="similar-left">
+        <b>${a.airline}</b>
+        <span style="margin-left:8px">${a.delta>0?'+':''}${a.delta} 元/kg</span>
+        <div class="similar-meta">生效 ${a.date}${a.expiry ? ' 至 '+a.expiry : '（长期）'}${a.expiry===today?' · <span style="color:var(--accent)">今天到期</span>':''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-id="${a.id}" style="color:var(--red)">删</button>
+    </div>
+  `).join('');
+  box.querySelectorAll('button[data-id]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('删除这条限时优惠？')) return;
+    saveAdjs(loadAdjs().filter(x => x.id !== b.dataset.id));
+    renderAdjList();
+    renderRateList();
+    updateAdjBanner();
+  }));
+}
+
+// 顶部提醒条：始终显示，有优惠时橙色高亮
+function updateAdjBanner() {
+  // banner已移除，优惠入口在已导入表价每行的"优惠"按钮里
+}
+
+// 限时优惠弹窗开关（入口在已导入表价每行的"优惠"按钮）
+$('adjModalClose').addEventListener('click', () => $('adjModalMask').classList.remove('show'));
+$('adjModalMask').addEventListener('click', (e) => {
+  if (e.target === $('adjModalMask')) $('adjModalMask').classList.remove('show');
+});
+
+// ---------- 快速查表 ----------
+$('btnQuickSearch').addEventListener('click', () => {
+  const dest = $('quickDest').value.trim().toUpperCase();
+  const w = parseFloat($('quickWeight').value) || 0;
+  if (!dest) { toast('请输入目的港'); return; }
+  const sheets = loadRates();
+  const wk = w > 0 ? matchWeightKey(w) : null;
+  const box = $('quickResult');
+  let html = '';
+  sheets.forEach(s => {
+    const rows = (s.rows||[]).filter(r => normalizeDest(r.dest) === dest);
+    if (!rows.length) return;
+    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+    html += '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
+    html += '<b>' + s.airline + '</b> ' + s.date;
+    if (adj !== 0) html += ' <span style="color:var(--accent)">(优惠' + (adj>0?'+':'') + adj + ')</span>';
+    html += '<br>';
+    rows.forEach(r => {
+      const prices = r.prices || {};
+      const keys = Object.keys(prices).sort();
+      html += '<div style="margin-top:4px;font-size:13px">';
+      keys.forEach(k => {
+        const v = prices[k] + (k === 'w45' ? 0 : adj);
+        const highlight = wk === k ? 'background:var(--green-soft);padding:2px 6px;border-radius:3px' : '';
+        html += '<span style="' + highlight + ';margin-right:8px">' + WEIGHT_LABEL[k] + ': ¥' + v + '</span>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+  box.innerHTML = html || '<div class="empty">表价库里没有 ' + dest + '</div>';
+});
+
+// ---------- 粘贴识别文字表价 ----------
+$('btnParsePasted').addEventListener('click', () => {
+  const text = $('pastedRate').value.trim();
+  if (!text) { toast('请先粘贴表价文字'); return; }
+  const destMatch = text.match(/\b([A-Z]{3})\b/g);
+  let dests = [];
+  if (destMatch) {
+    dests = destMatch.filter(function(d) { return ['CNY','RMB','USD'].indexOf(d) < 0; });
+    dests = Array.from(new Set(dests));
+  }
+  if (!dests.length) { toast('没识别到目的港'); return; }
+  const numbers = text.match(/\d+(?:\.\d+)?/g);
+  $('pastedPreview').innerHTML = '<div style="font-size:13px">识别到目的港：<b>' + dests.join(', ') + '</b>（共 ' + (numbers?numbers.length:0) + ' 个数字）<br><span style="color:var(--text-3)">详细价格解析功能待完善，请用Excel导入或手动录入。</span></div>';
+});
+function openRateDetail(id) {
+  const s = loadRates().find(x => x.id === id);
+  if (!s) return;
+  const adj = currentAdjFor(s.airline);
+  $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时优惠 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
+  let html = '';
+  if (adj !== 0) {
+    html += `<div style="background:var(--accent-soft);color:var(--accent);padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px">
+      限时优惠已生效：<b>${adj>0?'+':''}${adj} 元/kg</b>
+    </div>`;
+  }
+  if (s.image) {
+    html += `<div style="margin-bottom:12px"><img src="${s.image}" style="max-width:100%;border:1px solid var(--border);border-radius:6px"></div>`;
+  }
+  if (s.rows && s.rows.length) {
+    const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k => s.rows.some(r => r.prices[k] !== undefined));
+    const labels = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
+    html += `<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th>`;
+    weightKeys.forEach(k => html += `<th>${labels[k]}</th>`);
+    html += `<th>备注</th></tr></thead><tbody>`;
+    s.rows.forEach(r => {
+      html += `<tr><td><b>${r.dest}</b></td>`;
+      weightKeys.forEach(k => {
+        const v = r.prices[k];
+        if (v === undefined) { html += '<td>-</td>'; return; }
+        // 45kg 档不叠加优惠
+        const effective = (k === 'w45') ? v : v + adj;
+        if (adj !== 0 && k !== 'w45') {
+          html += `<td>${effective} <small style="color:var(--text-3);text-decoration:line-through">${v}</small></td>`;
+        } else {
+          html += `<td>${effective}</td>`;
+        }
+      });
+      html += `<td style="font-size:12px;color:var(--text-2)">${r.remark||''}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  } else if (!s.image) {
+    html += '<div class="empty">这条表价还没有数据</div>';
+  }
+  $('modalBody').innerHTML = html;
+  $('modalMask').classList.add('show');
+}
+
+// ---------- 成本计算（完整货代版） ----------
+function ccRefresh() {
+  const vol = parseFloat($('ccVolume').value) || 0;
+  const gw = parseFloat($('ccGW').value) || 0;
+  const rate = parseFloat($('ccRate').value) || 0;
+  const div = parseFloat(document.querySelector('input[name=ccBilling]:checked').value);
+  const isAir = (div === 0.006 || div === 0.007);
+  const bubble = isAir ? (parseFloat(document.querySelector('input[name=ccBubble]:checked').value) || 0) : 0;
+  const rmb = parseFloat($('ccRmb').value) || 0;
+  const targetUsd = parseFloat($('ccTargetUsd').value) || 0;
+
+  if (vol <= 0) {
+    ['ccCW','ccRatio','ccCostW','ccUsd','ccRmbAfter','ccUsdAfter','ccTargetRmb','ccTotalRmb','ccTotalUsd'].forEach(id => $(id).textContent = '-');
+    return;
+  }
+  const cw = vol / div;
+  const costW = gw > 0 ? gw + (cw - gw) * bubble : cw;
+  $('ccCW').textContent = cw.toFixed(2);
+  $('ccRatio').textContent = vol > 0 ? (gw / vol).toFixed(4) : '-';
+  $('ccCostW').textContent = costW.toFixed(2);
+
+  if (rmb > 0 && rate > 0) {
+    const usd = rmb / rate;
+    $('ccUsd').textContent = usd.toFixed(4);
+    $('ccRmbAfter').textContent = (costW * rmb / cw).toFixed(4);
+    $('ccUsdAfter').textContent = (costW * usd / cw).toFixed(4);
+    $('ccTotalRmb').textContent = (costW * rmb).toFixed(2);
+    $('ccTotalUsd').textContent = (costW * usd).toFixed(2);
+  } else if (targetUsd > 0 && rate > 0 && gw > 0) {
+    // 反算：已知目标USD售价，求RMB成本单价
+    const targetRmb = (targetUsd * cw * rate) / costW;
+    $('ccTargetRmb').textContent = targetRmb.toFixed(2);
+    $('ccUsd').textContent = (targetRmb / rate).toFixed(4);
+    $('ccRmbAfter').textContent = (costW * targetRmb / cw).toFixed(4);
+    $('ccUsdAfter').textContent = targetUsd.toFixed(4);
+    $('ccTotalRmb').textContent = (costW * targetRmb).toFixed(2);
+    $('ccTotalUsd').textContent = (costW * targetUsd).toFixed(2);
+  }
+}
+['ccVolume','ccGW','ccRate','ccRmb','ccTargetUsd'].forEach(id => $(id).addEventListener('input', ccRefresh));
+document.querySelectorAll('input[name=ccBilling]').forEach(r => r.addEventListener('change', () => {
+  const v = parseFloat(document.querySelector('input[name=ccBilling]:checked').value);
+  $('ccBubbleGroup').style.opacity = (v === 0.005 || v === 0.001) ? 0.4 : 1;
+  ccRefresh();
+}));
+document.querySelectorAll('input[name=ccBubble]').forEach(r => r.addEventListener('change', ccRefresh));
+
+// 件数尺寸动态行
+$('ccAddDim').addEventListener('click', () => {
+  const row = document.createElement('div');
+  row.className = 'dim-row';
+  row.innerHTML = `
+    <input type="number" class="dim-qty" placeholder="件数" value="1" min="1">
+    <input type="number" class="dim-l" placeholder="长cm">
+    <input type="number" class="dim-w" placeholder="宽cm">
+    <input type="number" class="dim-h" placeholder="高cm">
+    <button class="btn btn-ghost btn-sm" onclick="this.parentElement.remove()">删</button>`;
+  $('ccDimContainer').appendChild(row);
+});
+$('ccCalcVol').addEventListener('click', () => {
+  let vol = 0;
+  document.querySelectorAll('#ccDimContainer .dim-row').forEach(r => {
+    const q = parseFloat(r.querySelector('.dim-qty').value) || 0;
+    const l = parseFloat(r.querySelector('.dim-l').value) || 0;
+    const w = parseFloat(r.querySelector('.dim-w').value) || 0;
+    const h = parseFloat(r.querySelector('.dim-h').value) || 0;
+    vol += (l * w * h / 1000000) * q;
+  });
+  if (vol > 0) {
+    $('ccVolume').value = vol.toFixed(4);
+    ccRefresh();
+  }
+});
+
+// ---------- 云同步设置 ----------
+(function initSync() {
+  const cfg = getSyncConfig();
+  $('syncUsername').value = cfg.username || '';
+  $('syncPassword').value = cfg.password || '';
+  updateSyncStatus();
+})();
+
+function updateSyncStatus() {
+  const cfg = getSyncConfig();
+  $('syncStatus').innerHTML = cfg.username && cfg.password
+    ? '已登录：<b>' + cfg.username + '</b>'
+    : '未登录：当前纯本地存储';
+}
+
+$('btnSaveSync').addEventListener('click', () => {
+  const uname = $('syncUsername').value.trim().toLowerCase();
+  const pwd = $('syncPassword').value.trim();
+  const cfg = getSyncConfig();
+  cfg.workerUrl = DEFAULT_WORKER_URL;
+  cfg.username = uname;
+  cfg.password = pwd;
+  localStorage.setItem(SYNC_KEY, JSON.stringify(cfg));
+  updateSyncStatus();
+  toast('登录成功，数据开始同步');
+});
+
+$('btnPullCloud').addEventListener('click', async () => {
+  toast('正在从云端拉取...');
+  const [inq, rates, adjs] = await Promise.all([
+    syncFromCloud('/api/inquiries'),
+    syncFromCloud('/api/rates'),
+    syncFromCloud('/api/adjustments')
+  ]);
+  if (inq && inq.length) { saveAll(inq); renderList(); }
+  if (rates && rates.length) { saveRates(rates); renderRateList(); }
+  if (adjs && adjs.length) { saveAdjs(adjs); renderAdjList(); }
+  toast('云端数据已合并到本地');
+});
+
+$('btnPushCloud').addEventListener('click', () => {
+  syncToCloud('/api/inquiries', loadAll());
+  syncToCloud('/api/rates', loadRates());
+  syncToCloud('/api/adjustments', loadAdjs());
+  toast('本地数据已推到云端');
+});
+
+// 初始化
+$('fDate').value = todayStr();
+renderList();
+renderAdjList();
+updateAdjBanner();
+</script>
+</body>
+</html>
