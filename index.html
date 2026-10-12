@@ -376,6 +376,17 @@
     </div>
     <div id="rateMatchList"></div>
   </div>
+
+  <div id="outerRefCard" class="card" style="display:none">
+    <div class="card-title">
+      <span>外配参考（历史同港同档）</span>
+      <span class="tag tag-orange" id="outerRefCount"></span>
+    </div>
+    <div id="outerRefList"></div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text-3)">
+      点「填入」可把该外配成本价+供应商带到本条询价，保存时一并写入
+    </div>
+  </div>
 </div>
 
 <!-- ============ 视图：询价流水 ============ -->
@@ -983,6 +994,7 @@ $('btnParse').addEventListener('click', () => {
     updateCalcBox();
     updateSimilar();
     updateRateMatch();
+    updateOuterRef();
   } else {
     // 多票：显示预览表格
     lastMultiParsed = list;
@@ -1057,6 +1069,7 @@ $('btnClear').addEventListener('click', () => {
   $('parsedCard').style.display = 'none';
   $('similarCard').style.display = 'none';
   $('rateMatchCard').style.display = 'none';
+  $('outerRefCard').style.display = 'none';
   const mc = $('multiCard');
   if (mc) mc.remove();
   lastMultiParsed = null;
@@ -1064,9 +1077,9 @@ $('btnClear').addEventListener('click', () => {
 
 // 字段变化时实时重算和查相似
 ['fWeight','fVolume'].forEach(id => {
-  $(id).addEventListener('input', () => { updateCalcBox(); updateSimilar(); updateRateMatch(); });
+  $(id).addEventListener('input', () => { updateCalcBox(); updateSimilar(); updateRateMatch(); updateOuterRef(); });
 });
-$('fDest').addEventListener('input', () => { updateSimilar(); updateRateMatch(); });
+$('fDest').addEventListener('input', () => { updateSimilar(); updateRateMatch(); updateOuterRef(); });
 
 // 尺寸自动算体积：输入 100*80*60*5 自动算 CBM 反填
 $('fDims').addEventListener('input', () => {
@@ -1126,7 +1139,10 @@ function updateSimilar() {
 
 // 标准化目的港：去掉 (via NRT)、(...) 等括号注释
 function normalizeDest(d) {
-  return (d||'').toUpperCase().replace(/\s*\([^)]*\)\s*/g, '').trim();
+  // 同时去掉英文()和中文全角（）里的转运说明，如 "GUA (via NRT)" / "GUA（via NRT）" → "GUA"
+  return (d||'').toUpperCase()
+    .replace(/[\s]*[（(][^）)]*[）)]\s*/g, '')
+    .trim();
 }
 
 // 按计费重匹配重量档 key（空运断点逻辑：就高不就低）
@@ -1151,10 +1167,12 @@ function updateRateMatch() {
   const dk = matchDensityKey(densityRatio);
 
   const sheets = loadRates();
+  const isSheetExpired = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
   const matches = [];
   const missing = [];
   sheets.forEach(s => {
     if (!s.rows) return;
+    if (isSheetExpired(s)) return;   // 已过期/已到期：不参与匹配
     const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
@@ -1166,26 +1184,32 @@ function updateRateMatch() {
       }
       if (!hit) return;
 
-      // 先从比重档取价，没有再用标准价
+      // 先从比重档取价；比重档匹配不上时回退到标准重量档价
       let base = undefined;
       let densityUsed = null;
       let effectiveWk = wk;
       const hasDensity = r.densityPrices && Object.keys(r.densityPrices).length > 0;
+      const ORDER = ['w1000','w500','w300','w100','w45'];
+      const idx = ORDER.indexOf(wk);
+      // ① 当前比重档 + 当前重量档
       if (hasDensity && r.densityPrices[dk] && r.densityPrices[dk][wk] !== undefined) {
         base = r.densityPrices[dk][wk];
         densityUsed = dk;
-      } else if (!hasDensity && r.prices && r.prices[wk] !== undefined) {
-        base = r.prices[wk]; // 没有比重档的表（如上海AA）
-      } else {
-        // 兜底：当前重量档没价，往低档位找最近的有价格的档（就低不就高）
-        const order = ['w1000','w500','w300','w100','w45'];
-        const idx = order.indexOf(wk);
-        for (let i = idx + 1; i < order.length; i++) {
-          const k = order[i];
-          if (hasDensity && r.densityPrices[dk] && r.densityPrices[dk][k] !== undefined) {
-            base = r.densityPrices[dk][k]; effectiveWk = k; break;
-          } else if (!hasDensity && r.prices && r.prices[k] !== undefined) {
-            base = r.prices[k]; effectiveWk = k; break;
+      }
+      // ② 当前比重档 + 往低重量档找
+      if (base === undefined && hasDensity && r.densityPrices[dk]) {
+        for (let i = idx + 1; i < ORDER.length; i++) {
+          const k = ORDER[i];
+          if (r.densityPrices[dk][k] !== undefined) { base = r.densityPrices[dk][k]; effectiveWk = k; densityUsed = dk; break; }
+        }
+      }
+      // ③ 比重档完全没有当前密度 → 回退到标准重量档价（有比重档的表往往同时有标准价）
+      if (base === undefined && r.prices) {
+        if (r.prices[wk] !== undefined) { base = r.prices[wk]; densityUsed = null; }
+        else {
+          for (let i = idx + 1; i < ORDER.length; i++) {
+            const k = ORDER[i];
+            if (r.prices[k] !== undefined) { base = r.prices[k]; effectiveWk = k; densityUsed = null; break; }
           }
         }
       }
@@ -1226,12 +1250,23 @@ function updateRateMatch() {
   card.style.display = (matches.length || missing.length) ? 'block' : 'none';
   const box = $('rateMatchList');
   if (!matches.length && !missing.length) {
+    // 完全没匹配到：显示卡片（含诊断），否则用户看不到原因
+    card.style.display = 'block';
     const allDests = sheets.flatMap(s => s.rows ? s.rows.map(r => r.dest) : []);
     let dbg = `<div class="empty">表价库里没有 ${dest} 的当前价格</div>`;
     dbg += `<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;color:var(--text-3)">`;
     dbg += `表价库共 ${allDests.length} 个目的港：${allDests.slice(0,20).join(', ')}${allDests.length>20?'...':''}`;
-    const row = sheets.flatMap(s => s.rows||[]).find(r => normalizeDest(r.dest) === dest);
-    if (row) dbg += `<br>${dest} 入库：标准=${JSON.stringify(row.prices)} 比重=${JSON.stringify(row.densityPrices||{})}`;
+    // 诊断：GUA 在所有表中的存储明细
+    const guaRows = sheets.flatMap(s => (s.rows||[]).filter(r => normalizeDest(r.dest) === dest).map(r => ({sheet:s, row:r})));
+    if (guaRows.length) {
+      dbg += `<br><b>${dest} 在库明细：</b>`;
+      guaRows.forEach(({sheet,row}) => {
+        dbg += `<br>· ${sheet.airline} (${sheet.date}) 显示名"${row.dest}"<br>&nbsp;&nbsp;标准价=${JSON.stringify(row.prices||{})}<br>&nbsp;&nbsp;比重价=${JSON.stringify(row.densityPrices||{})}`;
+      });
+      dbg += `<br>本次询价：计费重 ${c.chargeW}kg → ${WEIGHT_LABEL[wk]}档，密度比 ${densityRatio.toFixed(0)} → ${DENSITY_LABEL[dk]||dk}`;
+    } else {
+      dbg += `<br><b>${dest} 没有任何表价行入库</b>（可能被灰色过滤掉，或表里没有）`;
+    }
     dbg += `</div>`;
     box.innerHTML = dbg;
     return;
@@ -1257,6 +1292,49 @@ function updateRateMatch() {
     html += '</div>';
   }
   box.innerHTML = html;
+}
+
+// 外配参考：从历史报价记录里找同目的港、同重量档、已有外配成本价的记录，供参考/套用
+function updateOuterRef() {
+  const card = $('outerRefCard');
+  const dest = $('fDest').value.trim().toUpperCase();
+  if (!dest) { card.style.display = 'none'; return; }
+  const c = calc($('fWeight').value, $('fVolume').value);
+  const wk = matchWeightKey(c.chargeW);
+  const all = loadAll();
+  const refs = all.filter(r =>
+    r.dest && r.dest.toUpperCase() === dest &&
+    r.outerPrice != null && r.outerPrice > 0 &&
+    matchWeightKey(calc(r.weight, r.volume).chargeW) === wk
+  ).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const box = $('outerRefList');
+  $('outerRefCount').textContent = refs.length + ' 条';
+  if (!refs.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const today = todayStr();
+  box.innerHTML = refs.slice(0, 8).map(r => {
+    let days = null;
+    if (r.date) days = Math.round((new Date(today) - new Date(r.date)) / 86400000);
+    return `
+    <div class="similar-item">
+      <div class="similar-left">
+        <div><b>${r.outerSupplier || '外配'}</b> · <span style="color:var(--text-2)">${r.date}${days!=null&&days>=0?('（'+days+'天前）'):''}</span></div>
+        <div class="similar-meta">${WEIGHT_LABEL[wk]}档 · 计费重 ${fmtNum(calc(r.weight,r.volume).chargeW,0)}kg${r.customer?(' · '+r.customer):''}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:17px;font-weight:700;color:var(--accent)">¥${fmtNum(r.outerPrice,2)}<small style="font-size:12px;color:var(--text-3)">/kg</small></span>
+        <button class="btn btn-ghost btn-sm" data-fill="${r.id}">填入</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-fill]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rec = loadAll().find(x => x.id === btn.dataset.fill);
+      if (!rec) return;
+      window.__pendingOuter = { supplier: rec.outerSupplier || '', price: rec.outerPrice };
+      toast(`已带入外配：${window.__pendingOuter.supplier||'外配'} ¥${window.__pendingOuter.price}/kg（保存本条询价时写入）`);
+    });
+  });
 }
 
 // ---------- 保存 ----------
@@ -1291,8 +1369,12 @@ $('btnSave').addEventListener('click', () => {  const dest = $('fDest').value.tr
     quotes: [],
     ratePrice: window.__currentRatePrice || null,  // 自动匹配的表价
     rateAirline: window.__currentRateAirline || null,
-    rateDensity: window.__currentRateDensity || null
+    rateDensity: window.__currentRateDensity || null,
+    // 外配参考里点了"填入"则一起带上外配成本价+供应商
+    outerPrice: (window.__pendingOuter && window.__pendingOuter.price) || null,
+    outerSupplier: (window.__pendingOuter && window.__pendingOuter.supplier) || ''
   };
+  window.__pendingOuter = null; // 用掉即清空
   const all = loadAll();
   all.unshift(rec);
   saveAll(all);
@@ -1609,11 +1691,10 @@ function saveRates(list) {
   syncToCloud('/api/rates', list);
 }
 
-// 判断 ExcelJS 单元格字体是否为灰色（无效价）
-// 注意：同一单元格可能同时有黑色新价和灰色旧价，不能因为有灰色就把整个单元格过滤
-function isGrayCellEX(cell) {
-  const font = cell && cell.font;
-  if (!font || !font.color) return false; // 无颜色=默认黑色，有效
+// 判断 ExcelJS 字体颜色是否"有效"（黑字或红字）
+// 灰色（R≈G≈B 的中间灰）一律视为无效价；黑色=有效，红色=有效（特价）
+function isFontValidEX(font) {
+  if (!font || !font.color) return true; // 无颜色=默认黑色，有效
   const c = font.color;
 
   // argb 方式
@@ -1625,22 +1706,48 @@ function isGrayCellEX(cell) {
       const r = parseInt(hex.substr(0,2),16);
       const g = parseInt(hex.substr(2,2),16);
       const b = parseInt(hex.substr(4,2),16);
-      // 红色（R高G/B低）= 特价，有效
-      if (r > 180 && g < 100 && b < 100) return false;
-      // 黑色（接近0）= 有效
-      if (r < 80 && g < 80 && b < 80) return false;
-      // 只有非常浅的灰（R=G=B 且 200-240）才判为无效
-      if (Math.abs(r-g) < 15 && Math.abs(g-b) < 15 && r >= 200 && r <= 240) return true;
+      // 红色（R明显高于G/B）= 特价，有效
+      if (r > 140 && (r - g) > 50 && (r - b) > 50) return true;
+      // 黑色/深色（整体很暗）= 有效
+      if (r < 90 && g < 90 && b < 90) return true;
+      // 灰阶：R≈G≈B（三通道接近相等）且不是黑/白 → 灰色，无效
+      const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
+      if (maxc - minc < 30) return false; // 中间灰/浅灰全部无效
+      // 其他彩色（蓝/绿等）→ 保守视为有效
+      return true;
     }
   }
 
-  // theme 方式：theme=0 是浅色文字主题，tint负数越深越灰
-  // 放宽：只有 tint < -0.3（明显深灰）才判无效，-0.1~-0.3 的浅灰不判
-  if (c.theme === 0 && typeof c.tint === 'number' && c.tint < -0.3) return true;
-  // theme=1 = 黑色文字，有效
-  if (c.theme === 1) return false;
+  // theme 方式：theme=1 = dark1 黑字，有效
+  if (c.theme === 1) return true;
+  // theme=0 = light1 浅色文字，通常是灰色系 → 无效（除非 tint 极深接近黑）
+  if (c.theme === 0) {
+    if (typeof c.tint === 'number' && c.tint < -0.6) return true;
+    return false;
+  }
 
-  return false;
+  return true;
+}
+
+// 从单元格提取"有效价格"（只取黑/红字部分；富文本按 run 颜色过滤灰字）
+function extractValidPrice(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) return null;
+  const v = cell.value;
+  // 富文本：逐 run 判断颜色，只拼黑/红 run 的文本
+  if (typeof v === 'object' && v.richText && Array.isArray(v.richText)) {
+    const text = v.richText
+      .filter(t => isFontValidEX(t.font))
+      .map(t => t.text || '')
+      .join('');
+    const n = parseFloat(text);
+    return isNaN(n) ? null : n;
+  }
+  // 公式/其他对象，取不了
+  if (typeof v === 'object') return null;
+  // 普通单元格，整体判断颜色
+  if (!isFontValidEX(cell.font)) return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
 }
 
 // 比重区间匹配：返回 density key，如 "200+" / "150-" / "std"（150-200标准价）
@@ -1729,13 +1836,12 @@ async function parseRateSheetToRowsEX(worksheet) {
     // 识别比重行：DESTINATION 是 "1:200+" / "1:150-" 这种格式
     const densityMatch = rawDest.match(/^1:(\d+)\s*([+-])\s*$/);
 
-    // 按字体颜色取价格
+    // 按字体颜色取价格（只取黑/红字；灰字忽略）
     const prices = {};
     weightCols.forEach(k => {
       const cell = row[col[k]];
-      const v = cellNum(cell);
+      const v = extractValidPrice(cell);
       if (v === null) return;
-      if (isGrayCellEX(cell)) return;
       prices[k] = v;
     });
     if (Object.keys(prices).length === 0) continue;
@@ -1938,18 +2044,33 @@ function renderRateList() {
   tbody.innerHTML = all.map(s => {
     const adj = currentAdjFor(s.airline);
     const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
+    const today = todayStr();
+    const autoExpired = s.expiry && s.expiry < today;   // 到期日已过
+    const manuallyExpired = s.expired === true;         // 手动标记过期
+    const isExpired = autoExpired || manuallyExpired;
+    const expLabel = autoExpired
+      ? `<span class="tag tag-red">已到期 ${s.expiry}</span>`
+      : manuallyExpired
+        ? `<span class="tag tag-red">已过期(手动)</span>`
+        : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
+    // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"
+    let actBtns = `
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="view">查看</button>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="adj" style="color:var(--accent)">优惠</button>`;
+    if (isExpired) {
+      actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="restore" style="color:var(--green)">恢复</button>`;
+    } else if (!s.expiry) {
+      actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="expire" style="color:var(--red)">过期</button>`;
+    }
+    actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="del" style="color:var(--red)">删</button>`;
     return `
-    <tr>
-      <td><b>${s.airline}</b> ${adjTag}</td>
+    <tr style="${isExpired ? 'opacity:.55' : ''}">
+      <td><b>${s.airline}</b> ${adjTag}${isExpired?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
       <td>${s.date}</td>
-      <td>${s.expiry || '-'}</td>
+      <td>${expLabel}</td>
       <td>${s.image ? '<span class="tag tag-orange">含截图</span>' : ''} ${s.note ? '<span style="color:var(--text-3);font-size:12px">'+s.note+'</span>' : ''}</td>
       <td>${s.rows ? s.rows.length : 0} 条</td>
-      <td>
-        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="view">查看</button>
-        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="adj" style="color:var(--accent)">优惠</button>
-        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="del" style="color:var(--red)">删</button>
-      </td>
+      <td>${actBtns}</td>
     </tr>`;
   }).join('');
   tbody.querySelectorAll('button[data-act="view"]').forEach(b => b.addEventListener('click', () => openRateDetail(b.dataset.id)));
@@ -1966,6 +2087,24 @@ function renderRateList() {
     const cur = loadRates().filter(x => x.id !== b.dataset.id);
     saveRates(cur);
     renderRateList();
+  }));
+  tbody.querySelectorAll('button[data-act="expire"]').forEach(b => b.addEventListener('click', () => {
+    const cur = loadRates();
+    const s = cur.find(x => x.id === b.dataset.id);
+    if (!s) return;
+    s.expired = true;
+    saveRates(cur);
+    renderRateList();
+    toast('已将该表价标记为过期，不再参与匹配');
+  }));
+  tbody.querySelectorAll('button[data-act="restore"]').forEach(b => b.addEventListener('click', () => {
+    const cur = loadRates();
+    const s = cur.find(x => x.id === b.dataset.id);
+    if (!s) return;
+    delete s.expired;
+    saveRates(cur);
+    renderRateList();
+    toast('已恢复该表价参与匹配');
   }));
 }
 
@@ -2060,6 +2199,7 @@ $('btnQuickSearch').addEventListener('click', () => {
   const box = $('quickResult');
   let html = '';
   sheets.forEach(s => {
+    if (s.expired === true || (s.expiry && s.expiry < todayStr())) return;  // 跳过过期表价
     const rows = (s.rows||[]).filter(r => normalizeDest(r.dest) === dest);
     if (!rows.length) return;
     const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
