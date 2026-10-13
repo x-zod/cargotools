@@ -333,9 +333,7 @@
 <div class="view active" id="view-quick">
   <div class="card">
     <div class="card-title">粘贴客户询价（自动解析目的港 / 件数 / 毛重 / 体积 / 尺寸）</div>
-    <textarea id="rawText" placeholder="示例：AUH 1.86CBM/3件/1300KGS 110*75*75*3
-也支持：JFK 3pcs 1300kg 1.86cbm 110x75x75x3
-或：PVG-AUH 1300K 1.86方 3件"></textarea>
+    <textarea id="rawText" placeholder="如遇无法自动识别，请手动填写并联系Zod修复"></textarea>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnParse">解析</button>
       <button class="btn btn-ghost" id="btnClear">清空</button>
@@ -440,17 +438,10 @@
 <!-- ============ 视图：航司表价 ============ -->
 <div class="view" id="view-rates">
   <div class="card">
-    <div class="card-title">快速查表</div>
-    <div class="row row-3">
-      <div class="field" style="margin:0">
-        <input id="quickDest" placeholder="目的港三字代码，如 JFK" style="text-transform:uppercase">
-      </div>
-      <div class="field" style="margin:0">
-        <input id="quickWeight" type="number" step="1" inputmode="decimal" placeholder="计费重 kg（可选）">
-      </div>
-      <div class="field" style="margin:0">
-        <button class="btn btn-primary" id="btnQuickSearch" style="width:100%">查询</button>
-      </div>
+    <div class="card-title">快速查询</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <input id="quickDest" placeholder="目的港三字代码，如 JFK" style="text-transform:uppercase;padding:8px 10px;font-size:13px;width:210px">
+      <button class="btn btn-primary" id="btnQuickSearch" style="padding:8px 18px">查询</button>
     </div>
     <div id="quickResult" style="margin-top:12px"></div>
   </div>
@@ -497,6 +488,12 @@
       Excel 格式：表头含 ORIGIN / DESTINATION / CUR / 各重量档（45KG/100KG/300KG）和备注列。
     </p>
   </div>
+
+  <!-- 转运费（联程附加费）：目的港价格 = hub 港表价 + 转运费（内置固定，无需维护） -->
+  <details class="card" id="transferCard" style="margin-top:12px">
+    <summary class="card-title" style="cursor:pointer">LH转运费</summary>
+    <div id="transferList" style="margin-top:4px"></div>
+  </details>
 
   <div id="ratePreviewCard" class="card" style="display:none">
     <div class="card-title">预览导入数据（确认后点保存）</div>
@@ -614,43 +611,27 @@
     <p style="color:var(--text-2);font-size:13px;margin-bottom:12px">
       输入用户名和密码，数据自动同步到云端。不填就纯本地存储。
     </p>
-    <div class="row row-3">
-      <div class="field" style="margin:0">
-        <input id="syncUsername" placeholder="用户名" style="font-size:13px;text-transform:lowercase">
-      </div>
-      <div class="field" style="margin:0">
-        <input id="syncPassword" type="password" placeholder="密码" style="font-size:13px">
-      </div>
-      <div class="field" style="margin:0">
-        <button class="btn btn-primary btn-sm" id="btnSaveSync" style="width:100%">登录</button>
-      </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <input id="syncUsername" placeholder="用户名" style="font-size:12px;padding:5px 8px;width:96px;text-transform:lowercase">
+      <input id="syncPassword" type="password" placeholder="密码" style="font-size:12px;padding:5px 8px;width:96px">
+      <button class="btn btn-primary btn-sm" id="btnSaveSync" style="padding:5px 12px">登录</button>
+      <button class="btn btn-ghost btn-sm" id="btnCloudSync" style="padding:5px 12px">Cloudflare同步</button>
     </div>
-    <div id="syncStatus" style="margin-top:10px;font-size:12px;color:var(--text-3)"></div>
-    <div class="btn-row" style="margin-top:10px">
-      <button class="btn btn-ghost btn-sm" id="btnPullCloud">从云端拉取</button>
-      <button class="btn btn-ghost btn-sm" id="btnPushCloud">推到云端</button>
-    </div>
+    <div id="syncStatus" style="margin-top:6px;font-size:12px;color:var(--text-3)"></div>
   </div>
   <div class="card">
-    <div class="card-title">数据备份（重要：清浏览器缓存前请先导出）</div>
-    <p style="color:var(--text-2);font-size:13px;margin-bottom:12px">
-      所有数据只存在你当前这台电脑的当前浏览器里。建议每天录完点一次导出，存成 JSON 文件备份。换电脑时用"导入"恢复。
-    </p>
-    <div class="btn-row" style="margin-top:0">
-      <button class="btn btn-primary" id="btnExport">导出 JSON 备份</button>
-      <button class="btn btn-ghost" id="btnImport">导入 JSON 恢复</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
+    <div class="card-title">本地数据管理</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" id="btnExport" style="padding:5px 12px">备份</button>
+      <button class="btn btn-ghost btn-sm" id="btnImport" style="padding:5px 12px">恢复</button>
+      <button class="btn btn-ghost btn-sm" id="btnExportCSV" style="padding:5px 12px">导出CSV</button>
+      <button class="btn btn-danger btn-sm" id="btnWipe" style="padding:5px 12px">清空全部数据</button>
     </div>
+    <input type="file" id="importFile" accept=".json" style="display:none">
   </div>
   <div class="card">
     <div class="card-title">统计</div>
     <div id="statsBox" style="font-size:13.5px;color:var(--text-2)"></div>
-  </div>
-  <div class="card">
-    <div class="card-title" style="color:var(--red)">危险操作</div>
-    <div class="btn-row" style="margin-top:0">
-      <button class="btn btn-danger" id="btnWipe">清空全部数据</button>
-    </div>
   </div>
 </div>
 
@@ -716,22 +697,25 @@ function getSyncConfig() {
     return cfg;
   } catch(e) { return { workerUrl: DEFAULT_WORKER_URL }; }
 }
-function syncToCloud(path, data) {
+async function syncToCloud(path, data) {
   const cfg = getSyncConfig();
-  if (!cfg.workerUrl || !cfg.username || !cfg.password) return;
-  fetch(cfg.workerUrl + path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Username': cfg.username,
-      'X-Password': cfg.password
-    },
-    body: JSON.stringify(data)
-  }).catch(e => console.log('云同步失败:', e));
+  if (!cfg.workerUrl || !cfg.username || !cfg.password) return false;
+  try {
+    const r = await fetch(cfg.workerUrl + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Username': cfg.username,
+        'X-Password': cfg.password
+      },
+      body: JSON.stringify(data)
+    });
+    return r.ok;
+  } catch(e) { console.log('云同步失败:', e); return false; }
 }
 async function syncFromCloud(path) {
   const cfg = getSyncConfig();
-  if (!cfg.workerUrl || !cfg.username || !cfg.password) return null;
+  if (!cfg.workerUrl || !cfg.username || !cfg.password) return { ok:false, data:null };
   try {
     const r = await fetch(cfg.workerUrl + path, {
       headers: {
@@ -739,20 +723,22 @@ async function syncFromCloud(path) {
         'X-Password': cfg.password
       }
     });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch(e) { return null; }
+    if (!r.ok) return { ok:false, data:null };
+    return { ok:true, data: await r.json() };
+  } catch(e) { return { ok:false, data:null }; }
 }
 
 // ---------- 存储层 ----------
+let _allCache = null, _allDirty = true;
 function loadAll() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (_allCache === null || _allDirty) { _allCache = JSON.parse(localStorage.getItem(STORE_KEY)) || []; _allDirty = false; }
+    return _allCache;
   } catch(e) { return []; }
 }
 function saveAll(list) {
   localStorage.setItem(STORE_KEY, JSON.stringify(list));
+  _allCache = list; _allDirty = false;
   syncToCloud('/api/inquiries', list);
 }
 function uid() {
@@ -761,11 +747,13 @@ function uid() {
 
 // ---------- 工具 ----------
 function $(id) { return document.getElementById(id); }
+let _toastTimer = null;
 function toast(msg) {
   const t = $('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 1800);
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
 }
 function todayStr() {
   const d = new Date();
@@ -788,7 +776,8 @@ const NOISE_DEST = new Set([
   'BULK','PLT','PAL','PVG','SHA','CAN','PEK','HKG','SZX','NRT','KIX','ICN','SIN',
   'BKK','JED','RUH','CGO','TFU','WUH','NGB','TAO','DLC','TSN','CKG','KMG','HGH',
   'FOC','CSX','HRB','SHE','URC','LXA','JNB','DKR','LOS','CAI','ADD','RUN','MBA',
-  'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE'
+  'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE',
+  'AOD','POR','DES','REF','QTY','LCL','FCL'
 ]);
 
 // 智能预处理：处理欧洲小数点逗号和千分位
@@ -829,23 +818,38 @@ function parseText(text) {
   m = t.match(/([\d.]+)\s*(CBM|cbm|方|立方米)/i);
   if (m) out.volume = m[1];
 
-  // 毛重 KG
-  m = t.match(/([\d.]+)\s*(KGS?|kgs?|公斤)/i);
-  if (m) out.weight = m[1];
+  // 毛重 KG：优先识别"单件重×件数"算出总重（如 15公斤*6件 = 90kg）
+  m = t.match(/([\d.]+)\s*(?:公斤|千克|kg|kgs)\s*[*xX×]\s*(\d+)\s*(?:件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|boxes?|cases?|bags?|drums?|托|箱|盒)/i);
+  if (m) {
+    const per = parseFloat(m[1]), n = parseInt(m[2], 10);
+    if (per > 0 && n > 0) out.weight = String(per * n);
+  } else {
+    // 普通毛重
+    m = t.match(/([\d.]+)\s*(KGS?|kgs?|公斤)/i);
+    if (m) out.weight = m[1];
+  }
 
   // 件数：数字+件/pcs/ctns/cartons/pallets/plts/pkgs/packages/cases/bags/drums/托/箱
-  m = t.match(/(\d+)\s*(件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|cases?|bags?|drums?|fiber\s*drums?|托|箱)/i);
+  m = t.match(/(\d+)\s*(件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|boxes?|cases?|bags?|drums?|fiber\s*drums?|托|箱|盒)/i);
   if (m) out.pieces = m[1];
 
   // 尺寸：数字*数字*数字（可能后面跟件数 如 110*75*75*3）
   m = t.match(/(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*(?:[*xX×]\s*(\d+))?/i);
   if (m) {
-    out.dims = `${m[1]}*${m[2]}*${m[3]}`;
+    const L = parseFloat(m[1]), W = parseFloat(m[2]), H = parseFloat(m[3]);
+    // 三个值都含小数点且都<10，视为米为单位（如 0.61*0.21*0.21、1.2*1.2*1.2），转成 cm
+    // （48*19.5*19.5 这类带整数部分的仍按 cm，不误转）
+    const allDecimal = m[1].includes('.') && m[2].includes('.') && m[3].includes('.');
+    if (allDecimal && L < 10 && W < 10 && H < 10) {
+      out.dims = `${Math.round(L*100)}*${Math.round(W*100)}*${Math.round(H*100)}`;
+    } else {
+      out.dims = `${m[1]}*${m[2]}*${m[3]}`;
+    }
     if (m[4] && !out.pieces) out.pieces = m[4];
     // 如果带CM/CBM单位且没体积，按件数自动算
     if (!out.volume && out.pieces && /CM/i.test(t)) {
-      const L = parseFloat(m[1])/100, W = parseFloat(m[2])/100, H = parseFloat(m[3])/100, n = parseFloat(out.pieces);
-      out.volume = (L * W * H * n).toFixed(3);
+      const Lc = parseFloat(m[1])/100, Wc = parseFloat(m[2])/100, Hc = parseFloat(m[3])/100, n = parseFloat(out.pieces);
+      out.volume = (Lc * Wc * Hc * n).toFixed(3);
     }
   }
   // 小数尺寸（米为单位，如 1.2*1.2*1.2），自动×100转cm
@@ -862,12 +866,30 @@ function parseText(text) {
 
   // 紧凑格式：DFW 3/360/3 = 3件/360kg/3方（兜底，仅在上面都没识别到时）
   if (!out.pieces || !out.weight || !out.volume) {
-    m = t.match(/\b([A-Z]{3})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\b/);
+    // 目的港在末尾：146 / 1316 / 9.52     DFW → 146件/1316kg/9.52方
+    m = t.match(/\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Z]{3})\b/);
     if (m) {
-      // 第二个数字是重量（kg），第三个是体积（CBM），第一个是件数
-      if (!out.pieces) out.pieces = m[2];
-      if (!out.weight) out.weight = m[3];
-      if (!out.volume) out.volume = m[4];
+      if (!out.pieces) out.pieces = m[1];
+      if (!out.weight) out.weight = m[2];
+      if (!out.volume) out.volume = m[3];
+      out.dest = m[4];
+    } else {
+      // 目的港在开头：DFW 3/360/3 = 3件/360kg/3方
+      m = t.match(/\b([A-Z]{3})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\b/);
+      if (m) {
+        // 第二个数字是重量（kg），第三个是体积（CBM），第一个是件数
+        if (!out.pieces) out.pieces = m[2];
+        if (!out.weight) out.weight = m[3];
+        if (!out.volume) out.volume = m[4];
+      } else {
+        // 目的港在开头但中间夹描述文字（如 "CLE 价格，散货数据是：184/1174/6.18"）
+        m = t.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+        if (m) {
+          if (!out.pieces) out.pieces = m[1];
+          if (!out.weight) out.weight = m[2];
+          if (!out.volume) out.volume = m[3];
+        }
+      }
     }
   }
 
@@ -878,6 +900,37 @@ function parseText(text) {
 function parseTextMulti(text) {
   let t = smartComma(text).trim();
   if (!t) return [];
+
+  // 并列目的港：文本开头的 AAA/BBB/CCC（≥3 个，用 / 连接），共用后续同一段货物数据
+  // 例："WAW/CDG/BRU 625kg/6.4cbm/250件" → WAW、CDG、BRU 三票共用 625kg/6.4cbm/250件
+  const groupMatch = t.match(/^([A-Za-z]{3}\s*\/\s*){2,}[A-Za-z]{3}/);
+  if (groupMatch) {
+    const codes = groupMatch[0].split(/[\/\s]+/).filter(x => /^[A-Za-z]{3}$/.test(x)).map(x => x.toUpperCase());
+    const rest = t.slice(groupMatch[0].length).trim();
+    if (codes.length >= 3 && rest) {
+      const p = parseText(rest);
+      if (p.weight || p.volume || p.pieces) {
+        return codes.map(cd => ({ ...p, dest: cd, rawDest: cd }));
+      }
+    }
+  }
+
+  // 目的港在末尾的多票：146 / 1316 / 9.52     DFW，106 / 1690 / 11.27   DFW
+  // 每段 = 件/重/体 斜杠 + 空格 + 末尾目的港
+  const tailRe = /\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Z]{3})\b/g;
+  const tailMatches = [];
+  let tm;
+  while ((tm = tailRe.exec(t)) !== null) tailMatches.push({ start: tm.index, end: tailRe.lastIndex, dest: tm[4] });
+  if (tailMatches.length) {
+    const segs = [];
+    for (let i = 0; i < tailMatches.length; i++) {
+      const segStart = i === 0 ? 0 : tailMatches[i-1].end;
+      const segEnd = tailMatches[i].end;
+      const p = parseText(t.slice(segStart, segEnd));
+      segs.push({ ...p, dest: tailMatches[i].dest, rawDest: tailMatches[i].dest });
+    }
+    if (segs.some(s => s.pieces || s.weight || s.volume)) return segs;
+  }
 
   // 找所有 AAA--BBB / AAA-BBB / AAA/BBB 航线模式
   const routeRe = /\b([A-Z]{3})\s*[-\/]{1,2}\s*([A-Z]{3})\b/g;
@@ -901,7 +954,12 @@ function parseTextMulti(text) {
   const anchors = [...routes.map(r => ({start: r.start, dest: r.dest})), ...stands]
     .sort((a,b) => a.start - b.start);
 
-  if (!anchors.length) return [parseText(t)];
+  // 只有一个目的港（或没有）：整段就是一票，直接整段解析
+  // （目的港可能在文本开头，也可能在末尾，切段会把前面的数据丢光）
+  if (anchors.length <= 1) {
+    const p = parseText(t);
+    return p.dest ? [p] : [];
+  }
 
   // 按anchors切分
   const segments = [];
@@ -911,11 +969,31 @@ function parseTextMulti(text) {
     segments.push({ dest: anchors[i].dest, text: t.slice(start, end) });
   }
 
-  return segments.map(seg => {
+  const out = [];
+  segments.forEach((seg, si) => {
     const p = parseText(seg.text);
     if (!p.dest) p.dest = seg.dest;
-    return p;
-  }).filter(p => p.dest);
+    if (p.dest) { p._si = si; out.push(p); }
+  });
+
+  // 并列目的港共享数据：段原文若是"纯目的港+连接符"（如 "UIO &"、"UIO&"），
+  // 说明它与下一段是同一票的并列目的港（UIO &GYE），共享下一段的货物数据
+  for (let i = 0; i < out.length; i++) {
+    const p = out[i];
+    if (p.pieces || p.weight || p.volume) continue;
+    const segTxt = segments[p._si].text.trim();
+    const reduced = segTxt.replace(/^[A-Za-z]{3}/, '').trim();
+    if (reduced && /^[\s&,、\-)]+$/.test(reduced)) {
+      for (let j = i + 1; j < out.length; j++) {
+        const q = out[j];
+        if (q.pieces || q.weight || q.volume) {
+          p.pieces = q.pieces; p.weight = q.weight; p.volume = q.volume; p.dims = q.dims;
+          break;
+        }
+      }
+    }
+  }
+  return out.map(o => { delete o._si; return o; });
 }
 
 // ---------- 计算：体积重 / 计费重 / 泡重比 ----------
@@ -962,7 +1040,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     $('view-' + tab.dataset.view).classList.add('active');
     if (tab.dataset.view === 'list') renderList();
-    if (tab.dataset.view === 'rates') { renderRateList(); renderAdjList(); updateAdjBanner(); }
+    if (tab.dataset.view === 'rates') { renderRateList(); renderAdjList(); updateAdjBanner(); renderTransferList(); }
     if (tab.dataset.view === 'data') renderStats();  });
 });
 
@@ -1006,14 +1084,17 @@ $('btnParse').addEventListener('click', () => {
       <div style="overflow-x:auto">
       <table style="table-layout:fixed">
         <colgroup>
-          <col style="width:14%"><col style="width:10%"><col style="width:14%">
-          <col style="width:14%"><col style="width:18%"><col style="width:15%"><col style="width:15%">
+          <col style="width:12%"><col style="width:8%"><col style="width:11%">
+          <col style="width:11%"><col style="width:14%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:11%">
         </colgroup>
         <thead><tr>
-          <th>目的港</th><th>件数</th><th>毛重kg</th><th>体积CBM</th><th>尺寸</th><th>客户</th><th>备注</th>
+          <th>目的港</th><th>件数</th><th>毛重kg</th><th>体积CBM</th><th>尺寸</th><th>客户</th><th>备注</th><th>表价参考</th><th>外配参考</th>
         </tr></thead>
         <tbody>
-          ${list.map((p,i) => `<tr>
+          ${list.map((p,i) => {
+            const rt = lookupRateFor(p.dest, p.weight, p.volume);
+            const ot = lookupOuterFor(p.dest, p.weight, p.volume);
+            return `<tr>
             <td><input value="${p.dest}" data-i="${i}" data-k="dest" style="padding:6px 8px"></td>
             <td><input value="${p.pieces}" data-i="${i}" data-k="pieces" style="padding:6px 8px"></td>
             <td><input value="${p.weight}" data-i="${i}" data-k="weight" style="padding:6px 8px"></td>
@@ -1021,7 +1102,10 @@ $('btnParse').addEventListener('click', () => {
             <td><input value="${p.dims}" data-i="${i}" data-k="dims" style="padding:6px 8px"></td>
             <td><input value="" data-i="${i}" data-k="customer" style="padding:6px 8px" placeholder="可选"></td>
             <td><input value="" data-i="${i}" data-k="remark" style="padding:6px 8px" placeholder="可选"></td>
-          </tr>`).join('')}
+            <td style="font-size:12px;vertical-align:middle">${rt?`<span style="color:var(--green);font-weight:700">${rt.airline} ¥${fmtNum(rt.final,2)}</span>`:'<span style="color:var(--text-3)">—</span>'}</td>
+            <td style="font-size:12px;color:var(--text-2);vertical-align:middle">${ot?`<span style="color:var(--accent);font-weight:600">${ot.supplier||'外配'} ¥${fmtNum(ot.price,2)}</span>`:'<span style="color:var(--text-3)">—</span>'}</td>
+          </tr>`;
+          }).join('')}
         </tbody>
       </table>
       </div>
@@ -1053,6 +1137,14 @@ $('btnParse').addEventListener('click', () => {
           else if (k === 'remark') rec.remark = inp.value.trim();
         });
         if (!rec.dest) return;
+        // 保存时自动匹配当前表价并写入（与单票保存一致），避免报价记录里表价栏为空
+        const mt = lookupRateFor(rec.dest, rec.weight, rec.volume);
+        if (mt) {
+          rec.ratePrice = mt.final;
+          rec.rateAirline = mt.airline;
+          rec.rateDensity = mt.density || null;
+          rec.rateDate = mt.sheetDate || null;
+        }
         all.unshift(rec);
       });
       saveAll(all);
@@ -1077,9 +1169,9 @@ $('btnClear').addEventListener('click', () => {
 
 // 字段变化时实时重算和查相似
 ['fWeight','fVolume'].forEach(id => {
-  $(id).addEventListener('input', () => { updateCalcBox(); updateSimilar(); updateRateMatch(); updateOuterRef(); });
+  $(id).addEventListener('input', () => { updateCalcBox(); updateSimilar(); scheduleRateMatch(); updateOuterRef(); });
 });
-$('fDest').addEventListener('input', () => { updateSimilar(); updateRateMatch(); updateOuterRef(); });
+$('fDest').addEventListener('input', () => { updateSimilar(); scheduleRateMatch(); updateOuterRef(); });
 
 // 尺寸自动算体积：输入 100*80*60*5 自动算 CBM 反填
 $('fDims').addEventListener('input', () => {
@@ -1090,7 +1182,7 @@ $('fDims').addEventListener('input', () => {
     const cbm = L * W * H * n;
     if (!$('fVolume').value) $('fVolume').value = cbm.toFixed(2);
     if (!$('fPieces').value) $('fPieces').value = n;
-    updateCalcBox(); updateSimilar(); updateRateMatch();
+    updateCalcBox(); updateSimilar(); scheduleRateMatch();
   }
 });
 
@@ -1155,12 +1247,107 @@ function matchWeightKey(chargeW) {
   return 'w1000';
 }
 const WEIGHT_LABEL = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
-// DENSITY_LABEL 声明已移除（避免重复声明报错）
+// DENSITY_LABEL 定义在下方（≈1300 行）统一维护，勿在此重复声明
+
+// 三级匹配取价：比重档当前档 → 比重档低重量档 → 标准重量档回退。返回 {base, weightKey, density}
+function priceFromRow(row, wk, effDk) {
+  const ORDER = ['w1000','w500','w300','w100','w45'];
+  const idx = ORDER.indexOf(wk);
+  let base, densityUsed = null, effectiveWk = wk;
+  const hasDensity = row.densityPrices && Object.keys(row.densityPrices).length > 0;
+  // ① 当前比重档 + 当前重量档
+  if (hasDensity && row.densityPrices[effDk] && row.densityPrices[effDk][wk] !== undefined) {
+    base = row.densityPrices[effDk][wk]; densityUsed = effDk;
+  }
+  // ② 当前比重档 + 往低重量档找
+  if (base === undefined && hasDensity && row.densityPrices[effDk]) {
+    for (let i = idx + 1; i < ORDER.length; i++) {
+      const k = ORDER[i];
+      if (row.densityPrices[effDk][k] !== undefined) { base = row.densityPrices[effDk][k]; effectiveWk = k; densityUsed = effDk; break; }
+    }
+  }
+  // ③ 比重档完全没有当前密度 → 回退标准重量档价
+  if (base === undefined && row.prices) {
+    if (row.prices[wk] !== undefined) { base = row.prices[wk]; densityUsed = null; }
+    else {
+      for (let i = idx + 1; i < ORDER.length; i++) {
+        const k = ORDER[i];
+        if (row.prices[k] !== undefined) { base = row.prices[k]; effectiveWk = k; densityUsed = null; break; }
+      }
+    }
+  }
+  return { base, weightKey: effectiveWk, density: densityUsed };
+}
+
+// 纯函数：查某票（目的港+毛重+体积）在未过期表价里的最低价（含 LH 联程转运），供单票/多票共用
+function lookupRateFor(dest, weight, volume) {
+  const sheets = loadRates();
+  const isExp = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
+  const c = calc(weight, volume);
+  const wk = matchWeightKey(c.chargeW);
+  const ratio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
+  const dk = matchDensityKey(ratio);
+  const qdn = normalizeDest(dest);
+  let best = null;
+  sheets.forEach(s => {
+    if (!s.rows || isExp(s)) return;
+    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+    const effDk = (s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk;
+    s.rows.forEach(r => {
+      const rd = normalizeDest(r.dest);
+      let hit = (rd === qdn);
+      if (!hit && (rd.includes('/') || rd.includes(' '))) hit = rd.split(/[\/\s]+/).filter(x => x.length === 3).includes(qdn);
+      if (!hit) return;
+      const p = priceFromRow(r, wk, effDk);
+      if (p.base !== undefined && (!best || p.base < best.base)) best = { airline: s.airline, sheetDate: s.date, weightKey: p.weightKey, final: p.base + adj, density: p.density };
+    });
+    // LH 联程转运（目的港无直达时经 hub）
+    const tr = getLHTransferFee(qdn);
+    if (tr && s.airline === LH_TRANSFER_FEES.airline) {
+      const hubRows = s.rows.filter(r => {
+        const rd = normalizeDest(r.dest);
+        if (rd === tr.hub) return true;
+        if (rd.includes('/') || rd.includes(' ')) return rd.split(/[\/\s]+/).filter(x => x.length === 3).includes(tr.hub);
+        return false;
+      });
+      hubRows.forEach(hr => {
+        const p = priceFromRow(hr, wk, effDk);
+        if (p.base !== undefined && (!best || p.base < best.base)) best = { airline: s.airline, sheetDate: s.date, weightKey: p.weightKey, final: p.base + tr.fee + adj, density: p.density };
+      });
+    }
+  });
+  return best;
+}
+
+// 纯函数：查某票的外配参考（同目的港、同重量档、有外配成本的最新记录）
+function lookupOuterFor(dest, weight, volume) {
+  const c = calc(weight, volume);
+  const wk = matchWeightKey(c.chargeW);
+  const all = loadAll();
+  const ref = all.filter(r =>
+    r.dest && r.dest.toUpperCase() === (dest||'').toUpperCase() &&
+    r.outerPrice != null && r.outerPrice > 0 &&
+    matchWeightKey(calc(r.weight, r.volume).chargeW) === wk
+  ).sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+  return ref ? { supplier: ref.outerSupplier||'', price: ref.outerPrice } : null;
+}
+
+// updateRateMatch 防抖：连续输入只在停顿后执行一次，避免每键全量遍历表价
+let _rateMatchTimer = null;
+function scheduleRateMatch() {
+  clearTimeout(_rateMatchTimer);
+  _rateMatchTimer = setTimeout(updateRateMatch, 250);
+}
+function flushRateMatch() {
+  clearTimeout(_rateMatchTimer); _rateMatchTimer = null;
+  updateRateMatch();
+}
 
 function updateRateMatch() {
   const dest = $('fDest').value.trim().toUpperCase();
   const card = $('rateMatchCard');
   if (!dest) { card.style.display = 'none'; return; }
+  const qd = normalizeDest(dest);
   const c = calc($('fWeight').value, $('fVolume').value);
   const wk = matchWeightKey(c.chargeW);
   const densityRatio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
@@ -1174,6 +1361,10 @@ function updateRateMatch() {
     if (!s.rows) return;
     if (isSheetExpired(s)) return;   // 已过期/已到期：不参与匹配
     const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+    // 该表若有自定义比重阶梯，用表自己的档位；否则用全局 matchDensityKey
+    const effDk = (s.densityDef && s.densityDef.length)
+      ? (matchDensityDef(s.densityDef, densityRatio) || dk)
+      : dk;
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
       const qd = normalizeDest(dest);
@@ -1192,15 +1383,15 @@ function updateRateMatch() {
       const ORDER = ['w1000','w500','w300','w100','w45'];
       const idx = ORDER.indexOf(wk);
       // ① 当前比重档 + 当前重量档
-      if (hasDensity && r.densityPrices[dk] && r.densityPrices[dk][wk] !== undefined) {
-        base = r.densityPrices[dk][wk];
-        densityUsed = dk;
+      if (hasDensity && r.densityPrices[effDk] && r.densityPrices[effDk][wk] !== undefined) {
+        base = r.densityPrices[effDk][wk];
+        densityUsed = effDk;
       }
       // ② 当前比重档 + 往低重量档找
-      if (base === undefined && hasDensity && r.densityPrices[dk]) {
+      if (base === undefined && hasDensity && r.densityPrices[effDk]) {
         for (let i = idx + 1; i < ORDER.length; i++) {
           const k = ORDER[i];
-          if (r.densityPrices[dk][k] !== undefined) { base = r.densityPrices[dk][k]; effectiveWk = k; densityUsed = dk; break; }
+          if (r.densityPrices[effDk][k] !== undefined) { base = r.densityPrices[effDk][k]; effectiveWk = k; densityUsed = effDk; break; }
         }
       }
       // ③ 比重档完全没有当前密度 → 回退到标准重量档价（有比重档的表往往同时有标准价）
@@ -1216,10 +1407,24 @@ function updateRateMatch() {
 
       if (base !== undefined) {
         const final = base + adj;
+        // 统配参考价：主价=3-4天散货；variants 取各参考档（3-4天托盘/1-2天散货/1-2天托盘）同档价
+        let vRefs = null;
+        if (r.variants) {
+          vRefs = {};
+          Object.keys(r.variants).forEach(lb => {
+            const v = r.variants[lb];
+            let vp;
+            if (v.densityPrices) {
+              if (v.densityPrices[effDk]) vp = v.densityPrices[effDk][effectiveWk];
+              else if (v.densityPrices['flat']) vp = v.densityPrices['flat'][effectiveWk];
+            } else if (v.prices) vp = v.prices[effectiveWk];
+            if (vp !== undefined) vRefs[lb] = vp + adj;
+          });
+        }
         matches.push({
           airline: s.airline, sheetDate: s.date, weightKey: effectiveWk,
           base, final, adj, matchedDest: (r.dest||'').trim(),
-          density: densityUsed, remark: r.remark || ''
+          density: densityUsed, remark: r.remark || '', variants: vRefs, service: r.service || null
         });
       } else {
         const availW = r.prices ? Object.keys(r.prices) : [];
@@ -1234,6 +1439,42 @@ function updateRateMatch() {
       }
     });
   });
+
+  // ===== 联程转运：目的港无直达表价时，用 LH 内置转运费 + hub(FRA) 表价报价 =====
+  const trInfo = getLHTransferFee(qd);
+  if (trInfo) {
+    // 只匹配 LH 航司的 hub 港表价（更新 LH 表价即自动联动）
+    sheets.forEach(s => {
+      if (s.airline !== LH_TRANSFER_FEES.airline || !s.rows || isSheetExpired(s)) return;
+      const hubRows = s.rows.filter(r => {
+        const rd = normalizeDest(r.dest);
+        if (rd === trInfo.hub) return true;
+        if (rd.includes('/') || rd.includes(' ')) {
+          return rd.split(/[\/\s]+/).filter(x => x.length === 3).includes(trInfo.hub);
+        }
+        return false;
+      });
+      if (!hubRows.length) return;
+      const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+      const effDk = (s.densityDef && s.densityDef.length)
+        ? (matchDensityDef(s.densityDef, densityRatio) || dk)
+        : dk;
+      // 遍历 hub 所有行（标准行+各比重行），取最低匹配价
+      let best = null;
+      hubRows.forEach(hubRow => {
+        const p = priceFromRow(hubRow, wk, effDk);
+        if (p.base !== undefined && (!best || p.base < best.base)) best = p;
+      });
+      if (best) {
+        matches.push({
+          airline: s.airline, sheetDate: s.date, weightKey: best.weightKey,
+          base: best.base, final: best.base + trInfo.fee + adj, adj,
+          matchedDest: qd, density: best.density,
+          remark: `经${trInfo.hub}转运 +${trInfo.fee}/kg`
+        });
+      }
+    });
+  }
 
   $('rateMatchCount').textContent = matches.length + ' 条';
   // 存最低价供保存时用
@@ -1274,8 +1515,9 @@ function updateRateMatch() {
   let html = matches.sort((a,b) => a.final - b.final).map(m => `
     <div class="similar-item" style="${m.final === matches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
       <div class="similar-left">
-        <div><b>${m.airline}</b> · ${m.matchedDest} · ${WEIGHT_LABEL[m.weightKey]}档${m.density ? ` · ${DENSITY_LABEL[m.density]}` : ''}${m.adj!==0?`（优惠${m.adj>0?'+':''}${m.adj}）`:''}</div>
+        <div><b>${m.airline}</b> · ${m.matchedDest} · ${WEIGHT_LABEL[m.weightKey]}档${m.density ? ` · ${DENSITY_LABEL[m.density]}` : ''}${m.adj!==0?`（优惠${m.adj>0?'+':''}${m.adj}）`:''}${m.service ? ` · <span style="color:var(--accent)">${m.service}</span>` : ''}</div>
         <div class="similar-meta">表价生效 ${m.sheetDate}${m.remark?(' · '+m.remark):''}</div>
+        ${m.variants ? renderVariants(m.variants, m.service) : ''}
       </div>
       <div class="similar-price">
         ¥${fmtNum(m.final,2)}<small>/kg</small>
@@ -1292,6 +1534,19 @@ function updateRateMatch() {
     html += '</div>';
   }
   box.innerHTML = html;
+}
+
+// 统配参考价展示：主价=service(散货)；侧=主价段托盘；下=其余服务段
+function renderVariants(variants, service) {
+  const sideKey = service ? service.replace('散货', '托盘') : null;
+  const side = (sideKey && variants[sideKey] !== undefined) ? variants[sideKey] : undefined;
+  const below = [];
+  Object.keys(variants).forEach(k => { if (k !== sideKey) below.push([k, variants[k]]); });
+  let h = '<div style="margin-top:6px;font-size:12px;color:var(--text-2);display:flex;flex-wrap:wrap;gap:4px 12px">';
+  if (side !== undefined) h += `<span>${sideKey} <b style="color:var(--text-1)">¥${fmtNum(side,2)}</b></span>`;
+  h += '</div>';
+  if (below.length) h += `<div style="margin-top:2px;font-size:12px;color:var(--text-3)">${below.map(([n, v]) => `${n} ¥${fmtNum(v,2)}`).join('　')}</div>`;
+  return h;
 }
 
 // 外配参考：从历史报价记录里找同目的港、同重量档、已有外配成本价的记录，供参考/套用
@@ -1353,7 +1608,7 @@ $('btnToCost').addEventListener('click', () => {
   $('view-cost').classList.add('active');
 });
 
-$('btnSave').addEventListener('click', () => {  const dest = $('fDest').value.trim().toUpperCase();
+$('btnSave').addEventListener('click', () => { flushRateMatch();  const dest = $('fDest').value.trim().toUpperCase();
   if (!dest) { toast('请填目的港'); return; }
   const rec = {
     id: uid(),
@@ -1430,7 +1685,11 @@ function renderList() {
     btn.addEventListener('click', () => openDetail(btn.dataset.id));
   });
 }
-$('searchBox').addEventListener('input', renderList);
+let _searchTimer = null;
+$('searchBox').addEventListener('input', () => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(renderList, 200);
+});
 $('filterDays').addEventListener('change', renderList);
 $('filterStatus').addEventListener('change', renderList);
 
@@ -1459,10 +1718,11 @@ function openDetail(id) {
     </div>
 
     <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:6px">
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-weight:600;width:60px">表价</span>
         <span style="color:var(--green);font-size:16px">${r.ratePrice?('¥'+fmtNum(r.ratePrice,2)+' /kg'):'-'}</span>
-        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${r.rateAirline}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}</span>`:''}
+        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${r.rateAirline}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}${r.rateDate?(' · '+r.rateDate):''}</span>`:''}
+        <button class="btn btn-ghost btn-sm" id="btnReMatchRate" title="用当前已导入表价重新匹配此票">更新</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
         <span style="font-weight:600;width:60px">外配</span>
@@ -1480,6 +1740,7 @@ function openDetail(id) {
         毛利：<b style="color:var(--primary)">¥${(r.customerPrice - Math.min(r.ratePrice, r.outerPrice||999)).toFixed(2)}/kg</b>
         （单票约 ¥${((r.customerPrice - Math.min(r.ratePrice, r.outerPrice||999)) * c.chargeW).toFixed(0)}）
       </div>`:''}
+      <div id="pastPriceBox" style="margin-top:10px"></div>
     </div>
 
     <!-- 旧的供应商报价模块已废弃，用外配替代 -->
@@ -1491,6 +1752,45 @@ function openDetail(id) {
     </div>
   `;
   renderQuotes(r);
+
+  // 同票历史价格：目的港/件数/毛重/体积相同的过往记录，列出其表价/外配/卖价供参考
+  const pastBox = $('pastPriceBox');
+  const past = all.filter(x => x.id !== r.id &&
+    x.dest && x.dest.toUpperCase() === (r.dest || '').toUpperCase() &&
+    Number(x.pieces || 0) === Number(r.pieces || 0) &&
+    Math.abs(Number(x.weight || 0) - Number(r.weight || 0)) < 0.5 &&
+    Math.abs(Number(x.volume || 0) - Number(r.volume || 0)) < 0.01
+  ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (past.length) {
+    pastBox.innerHTML = '<div style="font-weight:600;margin-bottom:4px">同票历史价格（' + r.dest + ' / ' + (r.pieces||'-') + '件 / ' + fmtNum(r.weight,1) + 'kg / ' + fmtNum(r.volume,2) + 'CBM）</div>' +
+      past.slice(0, 8).map(x =>
+        '<div style="display:flex;gap:14px;font-size:12.5px;color:var(--text-2);border-top:1px solid var(--border);padding:5px 0;align-items:center">' +
+        '<span style="width:88px;flex-shrink:0">' + x.date + '</span>' +
+        '<span style="color:var(--green)">表价' + (x.ratePrice != null ? '¥' + fmtNum(x.ratePrice,2) : '-') + '</span>' +
+        '<span style="color:var(--accent)">外配' + (x.outerPrice != null ? '¥' + fmtNum(x.outerPrice,2) : '-') + '</span>' +
+        '<span style="color:var(--primary)">卖价' + (x.customerPrice != null ? '¥' + fmtNum(x.customerPrice,2) : '-') + '</span>' +
+        (x.outerSupplier ? '<span style="color:var(--text-3)">' + x.outerSupplier + '</span>' : '') +
+        '</div>'
+      ).join('');
+  } else {
+    pastBox.style.display = 'none';
+  }
+
+  // 更新表价：用当前已导入表价重新匹配此票（第一次没匹配到、后来导入新表价时用）
+  const btnRe = $('btnReMatchRate');
+  if (btnRe) btnRe.addEventListener('click', () => {
+    const m = lookupRateFor(r.dest, r.weight, r.volume);
+    if (!m) { toast('当前已导入表价中未匹配到 ' + r.dest + ' 的价格'); return; }
+    r.ratePrice = m.final;
+    r.rateAirline = m.airline;
+    r.rateDensity = m.density || null;
+    r.rateDate = m.sheetDate || null;
+    saveAll(loadAll().map(x => x.id === r.id ? r : x));
+    toast('已用 ' + m.airline + ' ' + r.dest + ' 表价更新（¥' + fmtNum(m.final,2) + '）');
+    renderList();
+    closeModal();
+    openDetail(r.id);
+  });
 
   // 旧的添加报价按钮已废弃，跳过绑定
   if ($('btnAddQuote')) {
@@ -1616,6 +1916,45 @@ $('btnExport').addEventListener('click', () => {
   toast(`已导出 ${payload.inquiries.length} 条询价 + ${payload.rateSheets.length} 张表价`);
 });
 
+// 导出 CSV（供 Python 分析 / 知识库投喂）
+$('btnExportCSV').addEventListener('click', () => {
+  const esc = v => { const s = (v===null||v===undefined)?'':String(v); return /[",\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
+  const today = todayStr();
+  // 1) 报价记录
+  const inqRows = loadAll().map(r => {
+    const c = calc(r.weight, r.volume);
+    return [r.date||'', r.dest||'', r.pieces||'', r.weight||'', r.volume||'', c.chargeW, WEIGHT_LABEL[matchWeightKey(c.chargeW)]||'', r.ratePrice!=null?r.ratePrice:'', r.rateAirline||'', r.outerPrice!=null?r.outerPrice:'', r.outerSupplier||'', r.customerPrice!=null?r.customerPrice:'', r.customer||'', (r.remark||'').replace(/\n/g,' ')].map(esc).join(',');
+  });
+  const inqHeader = ['日期','目的港','件数','毛重kg','体积m³','计费重kg','重量档','表价¥/kg','表价航司','外配成本¥/kg','外配供应商','卖价¥/kg','客户','备注'].join(',');
+  const inqCsv = inqHeader + '\n' + inqRows.join('\n');
+  downloadBlob(new Blob(['\ufeff'+inqCsv], {type:'text/csv;charset=utf-8;'}), `报价记录_${today}.csv`);
+
+  // 2) 表价（长表：航司/生效日/目的港/重量档/价格，含比重档）
+  const WEIGHT_KEYS = ['w45','w100','w300','w500','w1000'];
+  const rateRows = [];
+  loadRates().forEach(s => {
+    const exp = s.expired ? '已过期' : (s.expiry ? '至'+s.expiry : '未设到期');
+    (s.rows||[]).forEach(r => {
+      const base = { airline:s.airline, date:s.date, expiry:exp, dest:(r.dest||'').trim() };
+      WEIGHT_KEYS.forEach(k => { if (r.prices && r.prices[k]!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], r.prices[k], '', ''].map(esc).join(',')); });
+      if (r.densityPrices) Object.keys(r.densityPrices).forEach(dk => {
+        const dl = DENSITY_LABEL[dk] || dk;
+        WEIGHT_KEYS.forEach(k => { const v = r.densityPrices[dk][k]; if (v!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], v, '比重', dl].map(esc).join(',')); });
+      });
+    });
+  });
+  const rateHeader = ['航司','生效日','到期','目的港','重量档','价格¥/kg','价格类型','比重档'].join(',');
+  const rateCsv = rateHeader + '\n' + rateRows.join('\n');
+  downloadBlob(new Blob(['\ufeff'+rateCsv], {type:'text/csv;charset=utf-8;'}), `表价_${today}.csv`);
+  toast(`已导出 ${inqRows.length} 条报价 + ${rateRows.length} 条表价（CSV，可直接给 Python/知识库）`);
+});
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
 $('btnImport').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', (e) => {
   const f = e.target.files[0];
@@ -1665,6 +2004,9 @@ $('btnWipe').addEventListener('click', () => {
   localStorage.removeItem(STORE_KEY);
   localStorage.removeItem('af_rate_sheets_v1');
   localStorage.removeItem('af_adjustments_v1');
+  _allCache = null; _allDirty = true;
+  _rateCache = null; _rateDirty = true;
+  _adjCache = null; _adjDirty = true;
   renderList(); renderRateList(); renderAdjList(); updateAdjBanner();
   toast('已清空');
 });
@@ -1682,12 +2024,16 @@ function renderStats() {
 
 // ---------- 航司表价：存储 ----------
 const RATE_KEY = 'af_rate_sheets_v1';
+let _rateCache = null, _rateDirty = true;
 function loadRates() {
-  try { return JSON.parse(localStorage.getItem(RATE_KEY)) || []; }
-  catch(e) { return []; }
+  try {
+    if (_rateCache === null || _rateDirty) { _rateCache = JSON.parse(localStorage.getItem(RATE_KEY)) || []; _rateDirty = false; }
+    return _rateCache;
+  } catch(e) { return []; }
 }
 function saveRates(list) {
   localStorage.setItem(RATE_KEY, JSON.stringify(list));
+  _rateCache = list; _rateDirty = false;
   syncToCloud('/api/rates', list);
 }
 
@@ -1750,6 +2096,27 @@ function extractValidPrice(cell) {
   return isNaN(n) ? null : n;
 }
 
+// 从单元格提取"有效目的港文本"：只保留黑/红字 run；灰字字母代码丢弃，灰字分隔符(/)保留用于拆分
+function extractValidDestText(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) return '';
+  const v = cell.value;
+  if (typeof v === 'object' && v.richText && Array.isArray(v.richText)) {
+    let out = '';
+    v.richText.forEach(run => {
+      const s = run.text || '';
+      if (isFontValidEX(run.font)) out += s;
+      else if (/[^A-Za-z0-9]/.test(s)) out += s; // 灰色分隔符/括号保留
+      // 灰色字母代码（如灰色 ANU）→ 丢弃
+    });
+    return out.trim();
+  }
+  if (typeof v === 'object') {
+    if (v.result !== undefined) return isFontValidEX(cell.font) ? String(v.result) : '';
+    return '';
+  }
+  return isFontValidEX(cell.font) ? String(v).trim() : '';
+}
+
 // 比重区间匹配：返回 density key，如 "200+" / "150-" / "std"（150-200标准价）
 function matchDensityKey(ratio) {
   if (ratio >= 800) return '800+';
@@ -1763,7 +2130,36 @@ function matchDensityKey(ratio) {
   if (ratio >= 100) return '120-';
   return '100-';
 }
-const DENSITY_LABEL = { '200+':'1:200+','300+':'1:300+','500+':'1:500+','800+':'1:800+','150-':'1:150-','140-':'1:140-','130-':'1:130-','120-':'1:120-','100-':'1:100-','std':'标准(150-200)' };
+const DENSITY_LABEL = { '200+':'1:200+','300+':'1:300+','500+':'1:500+','800+':'1:800+','150-':'1:150-','140-':'1:140-','130-':'1:130-','120-':'1:120-','100-':'1:100-','std':'标准(150-200)',
+  '1000+':'1:1000+','400+':'1:400+','250+':'1:250+','flat':'平散货','平散货':'平散货',
+  '<1:80':'泡1:80-','<1:100':'泡1:100-','<1:120':'泡1:120-','<1:140':'泡1:140-','<1:150':'泡1:150-','<1:200':'泡1:200-','<1:250':'泡1:250-','<1:300':'泡1:300-',
+  '1:100+':'重1:100+','1:120+':'重1:120+','1:140+':'重1:140+','1:150+':'重1:150+','1:200+':'重1:200+','1:250+':'重1:250+','1:300+':'重1:300+','1:400+':'重1:400+','1:500+':'重1:500+','1:800+':'重1:800+','1:1000+':'重1:1000+',
+  '1:150-':'泡1:150-','1:140-':'泡1:140-','1:130-':'泡1:130-','1:120-':'泡1:120-','1:100-':'泡1:100-','1:500-':'泡1:500-','1:1000-':'泡1:1000-' };
+
+// 每表自定义比重阶梯：把解析到的比重档（泡档 max / 重档 min / 平档 flat）拼成分段定义
+// 返回 [{key, min(含), max(不含)}]，按 min 升序
+function buildDensityDef(parts) {
+  const maxList = parts.filter(p => p.max != null).sort((a,b) => a.max - b.max);  // 泡档（密度<上界）
+  const minList = parts.filter(p => p.min != null).sort((a,b) => a.min - b.min);  // 重档（密度>=下界）
+  const flat = parts.find(p => p.flat);                                            // 平散货档
+  const def = [];
+  maxList.forEach((r, i) => { def.push({ key: r.key, min: i === 0 ? 0 : maxList[i-1].max, max: r.max }); });
+  if (flat) {
+    const flatMin = maxList.length ? maxList[maxList.length-1].max : 0;
+    const flatMax = minList.length ? minList[0].min : Infinity;
+    def.push({ key: flat.key, min: flatMin, max: flatMax });
+  }
+  minList.forEach((r, i) => { def.push({ key: r.key, min: r.min, max: i === minList.length-1 ? Infinity : minList[i+1].min }); });
+  def.sort((a,b) => a.min - b.min);
+  return def;
+}
+// 用表自己的比重阶梯匹配密度，返回档 key；匹配不到返回 null
+function matchDensityDef(def, ratio) {
+  for (let i = 0; i < def.length; i++) {
+    if (ratio >= def[i].min && ratio < def[i].max) return def[i].key;
+  }
+  return null;
+}
 
 // 解析 ExcelJS worksheet 为牌价行
 async function parseRateSheetToRowsEX(worksheet) {
@@ -1823,6 +2219,19 @@ async function parseRateSheetToRowsEX(worksheet) {
   });
   if (col.dest === undefined) throw new Error('没找到目的港列');
 
+  // 若没有标准 REMARK/NOTE 列，用 DEST 之后第一个"非纯重量档、非货币、非空"列作为备注列
+  // （如上海AA 的"日本方向转运南美... "说明列、AA128 的"每天航班 托盘+2/KGS..."说明列）
+  if (col.remark === undefined) {
+    for (let i = 0; i < headers.length; i++) {
+      if (i <= col.dest) continue;
+      const h = headers[i];
+      if (!h) continue;
+      if (/^(?:45|100|300|500|1000)\s*KG/.test(h)) continue;   // 纯重量档列名
+      if (/^CUR|^ORIGIN|^DEST/.test(h)) continue;
+      col.remark = i; break;
+    }
+  }
+
   const weightCols = ['w45','w100','w300','w500','w1000'].filter(k => col[k] !== undefined);
   const merged = {};
   let lastDestKey = null; // 比重行挂到上一个目的港
@@ -1833,8 +2242,28 @@ async function parseRateSheetToRowsEX(worksheet) {
     const rawDest = cellText(destCell);
     if (!rawDest || /^(TOTAL|合计|小计)/i.test(rawDest)) continue;
 
-    // 识别比重行：DESTINATION 是 "1:200+" / "1:150-" 这种格式
-    const densityMatch = rawDest.match(/^1:(\d+)\s*([+-])\s*$/);
+    // 识别比重行：DESTINATION 是比重标签（泡档 / 重档 / 平档）
+    // 泡档：<1:80、≤1:80、1:80（裸泡档）、1:150-（旧格式）
+    // 重档：≥1:200、>1:200、1:200+（旧格式）
+    // 平档：平散货 / 平货
+    let densityInfo = null;
+    {
+      let m;
+      if ((m = rawDest.match(/^1\s*:\s*(\d+)\s*[+-]/))) {          // 旧格式：1:200+（重）/ 1:150-（泡）
+        const n = parseInt(m[1]);
+        densityInfo = rawDest.includes('-')
+          ? { key: '1:' + n + '-', max: n }
+          : { key: '1:' + n + '+', min: n };
+      } else if ((m = rawDest.match(/^(?:[<≤])\s*1\s*:\s*(\d+)/))) { // 泡档：<1:80 / ≤1:80
+        densityInfo = { key: '<1:' + m[1], max: parseInt(m[1]) };
+      } else if ((m = rawDest.match(/^[>≥]\s*1\s*:\s*(\d+)/))) {     // 重档：>1:200 / ≥1:200
+        densityInfo = { key: '1:' + m[1] + '+', min: parseInt(m[1]) };
+      } else if ((m = rawDest.match(/^1\s*:\s*(\d+)/))) {            // 裸 1:80 → 泡档（LH 语义）
+        densityInfo = { key: '<1:' + m[1], max: parseInt(m[1]) };
+      } else if (/平散货|平货|^平$/.test(rawDest)) {
+        densityInfo = { key: 'flat', flat: true };
+      }
+    }
 
     // 按字体颜色取价格（只取黑/红字；灰字忽略）
     const prices = {};
@@ -1846,26 +2275,46 @@ async function parseRateSheetToRowsEX(worksheet) {
     });
     if (Object.keys(prices).length === 0) continue;
 
-    if (densityMatch && lastDestKey) {
+    if (densityInfo && lastDestKey) {
       // 比重行：挂到上一个目的港的 densityPrices
-      const dKey = densityMatch[1] + densityMatch[2]; // "200+" / "150-"
+      const dKey = densityInfo.key;
       const rec = merged[lastDestKey];
       if (!rec.densityPrices) rec.densityPrices = {};
       if (!rec.densityPrices[dKey]) rec.densityPrices[dKey] = {};
       weightCols.forEach(k => {
         if (prices[k] !== undefined) rec.densityPrices[dKey][k] = prices[k];
       });
+      // 记录比重档边界，用于构建该表自己的比重阶梯 densityDef
+      if (!rec._densityParts) rec._densityParts = [];
+      if (!rec._densityParts.some(p => p.key === dKey)) rec._densityParts.push(densityInfo);
       continue;
     }
 
-    // 正常目的港行
-    let destCandidates = [rawDest];
-    if (rawDest.includes('/')) {
-      destCandidates = rawDest.split('/').map(s => s.trim()).filter(s => s.length >= 3);
+    // 跳过中文说明行（AA 表里的"危险品/冷冻品/品名中含有马达的货物/注意事项"等非目的港，
+    // 虽可能带价格但不是港；目的港列一定以英文三字码/字母开头）
+    if (!/^[A-Za-z]/.test(rawDest.trim())) continue;
+
+    // 正常目的港行（只取黑/红字目的港，灰色目的港自动过滤）
+    const validDestText = extractValidDestText(destCell);
+    if (!validDestText) continue; // 整格灰色/无有效目的港 → 跳过该行
+    let destCandidates = [validDestText];
+    if (validDestText.includes('/')) {
+      destCandidates = validDestText.split('/').map(s => s.trim()).filter(s => s.length >= 3);
+    }
+    // 卡车转运模式：MEXICO ... (MEX卡车1,3,5 GDL卡车1,3,5 MTY卡车1,2,3,4,5)
+    // 备注里的"XXX卡车周几"是独立目的港，按卡车班次拆开（卡车数字=每周几有卡车转运）
+    const remarkRaw = col.remark !== undefined ? cellText(row[col.remark]) : '';
+    let truckList = null;
+    if (remarkRaw && /卡车/.test(remarkRaw)) {
+      const tms = [...remarkRaw.matchAll(/([A-Z]{3})卡车([\d,\s]+)/gi)];
+      if (tms.length) {
+        truckList = tms.map(m => ({ code: m[1].toUpperCase(), days: m[2].replace(/[\s,]+/g, ',').replace(/^,|,$/g, '') }));
+        destCandidates = truckList.map(t => t.code);
+      }
     }
     if (!destCandidates.length) continue;
 
-    destCandidates.forEach(vd => {
+    destCandidates.forEach((vd, di) => {
       const vKey = normalizeDest(vd);
       if (!merged[vKey]) {
         merged[vKey] = {
@@ -1883,14 +2332,20 @@ async function parseRateSheetToRowsEX(worksheet) {
           rec.prices[k] = prices[k];
         }
       });
-      const remark = col.remark !== undefined ? cellText(row[col.remark]) : '';
+      const remark = truckList ? `卡车班次:${truckList[di].days}` : (col.remark !== undefined ? cellText(row[col.remark]) : '');
       if (remark && !rec.remarks.includes(remark)) rec.remarks.push(remark);
       lastDestKey = vKey; // 记录当前目的港，供后面比重行挂载
     });
   }
 
   const out = Object.values(merged);
-  out.forEach(r => { r.remark = r.remarks.join('；'); });
+  out.forEach(r => {
+    r.remark = r.remarks.join('；');
+    if (r._densityParts && r._densityParts.length) {
+      r._densityDef = buildDensityDef(r._densityParts);
+      delete r._densityParts;
+    }
+  });
   return out;
 }
 
@@ -1913,7 +2368,7 @@ $('btnManualRate').addEventListener('click', () => {
   const sheets = loadRates();
   let sheet = sheets.find(s => s.airline === airline && s.date === date);
   if (!sheet) {
-    sheet = { airline, date, rows: [], img: null };
+    sheet = { id: uid(), airline, date, rows: [], img: null };
     sheets.push(sheet);
   }
   const prices = {};
@@ -1957,15 +2412,21 @@ $('excelFile').addEventListener('change', async (e) => {
 });
 
 function showRatePreview(rows) {
-  // 动态决定重量档列
-  const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k => rows.some(r => r.prices[k] !== undefined));
+  const hasStd = rows.some(r => r.prices && Object.keys(r.prices).length);
+  const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k => rows.some(r => r.prices && r.prices[k] !== undefined));
   const weightLabels = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
   let html = '<thead><tr><th>目的港</th>';
-  weightKeys.forEach(k => html += `<th>${weightLabels[k]}</th>`);
+  if (hasStd && weightKeys.length) weightKeys.forEach(k => html += `<th>${weightLabels[k]}</th>`);
+  else if (!hasStd) html += '<th>主价(3-4天散货)</th>';
   html += '<th>备注</th></tr></thead><tbody>';
   rows.slice(0, 200).forEach(r => {
     html += `<tr><td><b>${r.dest}</b></td>`;
-    weightKeys.forEach(k => html += `<td>${r.prices[k] !== undefined ? r.prices[k] : '-'}</td>`);
+    if (hasStd && weightKeys.length) {
+      weightKeys.forEach(k => html += `<td>${(r.prices && r.prices[k] !== undefined) ? r.prices[k] : '-'}</td>`);
+    } else if (!hasStd) {
+      const flat = r.densityPrices && r.densityPrices['flat'];
+      html += `<td>${flat ? flat.w100 : '-'}</td>`;
+    }
     html += `<td style="font-size:12px;color:var(--text-2)">${r.remark||''}</td></tr>`;
   });
   html += '</tbody>';
@@ -1988,14 +2449,26 @@ $('btnSaveRate').addEventListener('click', () => {
     date: $('rateDate').value || todayStr(),
     expiry: $('rateExpiry').value || '',
     origin: 'PVG',
-    rows: parsedRows,
+    rows: parsedRows.map(r => { const c = Object.assign({}, r); delete c._densityDef; return c; }),
     image: '', // 预留截图
     created_at: new Date().toISOString()
   };
+  // 该表若带自定义比重阶梯（如 LH 的 <1:80 / ≥1:200 / 平散货），提升到表级供匹配
+  if (parsedRows[0] && parsedRows[0]._densityDef && parsedRows[0]._densityDef.length) {
+    sheet.densityDef = parsedRows[0]._densityDef;
+  }
   const all = loadRates();
+  // 业务规则：同一航司上传新表价，上传当天即新表生效，之前的表价自动过期
+  let expiredCount = 0;
+  all.forEach(s => {
+    if (s.airline === airline && s.id !== sheet.id && s.expired !== true) {
+      s.expired = true;
+      expiredCount++;
+    }
+  });
   all.unshift(sheet);
   saveRates(all);
-  toast(`已保存 ${parsedRows.length} 条 ${airline} 表价`);
+  toast(`已保存 ${parsedRows.length} 条 ${airline} 表价${expiredCount?`，${expiredCount} 张旧表价已自动过期`:''}`);
   parsedRows = null;
   $('ratePreviewCard').style.display = 'none';
   renderRateList();
@@ -2027,6 +2500,10 @@ $('imgFile').addEventListener('change', (e) => {
       created_at: new Date().toISOString()
     };
     const all = loadRates();
+    // 同航司上传新表价 → 旧表价自动过期
+    all.forEach(s => {
+      if (s.airline === airline && s.id !== sheet.id && s.expired !== true) s.expired = true;
+    });
     all.unshift(sheet);
     saveRates(all);
     toast('截图已存证，点下面列表里这条去填价格');
@@ -2053,16 +2530,16 @@ function renderRateList() {
       : manuallyExpired
         ? `<span class="tag tag-red">已过期(手动)</span>`
         : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
-    // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"
+    // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"；两排：查看/过期 + 调价/删除
     let actBtns = `
-        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="view">查看</button>
-        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="adj" style="color:var(--accent)">优惠</button>`;
-    if (isExpired) {
-      actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="restore" style="color:var(--green)">恢复</button>`;
-    } else if (!s.expiry) {
-      actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="expire" style="color:var(--red)">过期</button>`;
-    }
-    actBtns += `<button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="del" style="color:var(--red)">删</button>`;
+      <div style="display:flex;gap:6px;margin-bottom:6px;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="view" style="flex:0 0 auto;white-space:nowrap">查看</button>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="${isExpired?'restore':'expire'}" style="flex:0 0 auto;white-space:nowrap;${isExpired?'color:var(--green)':'color:var(--red)'}">${isExpired?'恢复':'过期'}</button>
+      </div>
+      <div style="display:flex;gap:6px;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="adj" style="flex:0 0 auto;white-space:nowrap;color:var(--accent)">调价</button>
+        <button class="btn btn-ghost btn-sm" data-id="${s.id}" data-act="del" style="flex:0 0 auto;white-space:nowrap;color:var(--red)">删除</button>
+      </div>`;
     return `
     <tr style="${isExpired ? 'opacity:.55' : ''}">
       <td><b>${s.airline}</b> ${adjTag}${isExpired?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
@@ -2089,10 +2566,13 @@ function renderRateList() {
     renderRateList();
   }));
   tbody.querySelectorAll('button[data-act="expire"]').forEach(b => b.addEventListener('click', () => {
-    const cur = loadRates();
-    const s = cur.find(x => x.id === b.dataset.id);
+    const s = loadRates().find(x => x.id === b.dataset.id);
     if (!s) return;
-    s.expired = true;
+    if (!confirm(`确认将 ${s.airline} ${s.date} 这张表价标记为过期？\n过期后不再参与询价匹配。`)) return;
+    const cur = loadRates();
+    const t = cur.find(x => x.id === b.dataset.id);
+    if (!t) return;
+    t.expired = true;
     saveRates(cur);
     renderRateList();
     toast('已将该表价标记为过期，不再参与匹配');
@@ -2110,12 +2590,16 @@ function renderRateList() {
 
 // ---------- 临时调价：存储与逻辑 ----------
 const ADJ_KEY = 'af_adjustments_v1';
+let _adjCache = null, _adjDirty = true;
 function loadAdjs() {
-  try { return JSON.parse(localStorage.getItem(ADJ_KEY)) || []; }
-  catch(e) { return []; }
+  try {
+    if (_adjCache === null || _adjDirty) { _adjCache = JSON.parse(localStorage.getItem(ADJ_KEY)) || []; _adjDirty = false; }
+    return _adjCache;
+  } catch(e) { return []; }
 }
 function saveAdjs(list) {
   localStorage.setItem(ADJ_KEY, JSON.stringify(list));
+  _adjCache = list; _adjDirty = false;
   syncToCloud('/api/adjustments', list);
 }
 
@@ -2127,11 +2611,48 @@ function currentAdjFor(airline, date) {
   ).reduce((sum, a) => sum + a.delta, 0);
 }
 
+// ---------- 转运费（联程附加费）内置固定 ----------
+// LH 经 FRA 转运费（每 kg 固定，元/kg）。询价 LH 欧洲目的港 = FRA 表价 + 此费用；只需更新 LH 表价（含 FRA）即自动联动。
+const LH_TRANSFER_FEES = {
+  hub: 'FRA', airline: 'LH',
+  fees: {
+    AMS:0.5,
+    CGN:1.0, DRS:1.0, DUS:1.0, FMO:1.0, GRZ:1.0, LEJ:1.0, LGG:1.0, LUX:1.0, NUE:1.0, PAD:1.0, PRG:1.0, STR:1.0,
+    BER:1.5, BLQ:1.5, BRE:1.5, BRN:1.5, BRU:1.5, BSL:1.5, BTS:1.5, CDG:1.5, FLR:1.5, GVA:1.5, HAJ:1.5, HAM:1.5, LIL:1.5, LJU:1.5, LNZ:1.5, LYS:1.5, MST:1.5, RTM:1.5, SXB:1.5, TSR:1.5, WAW:1.5, ZRH:1.5,
+    BCN:2.0, BEG:2.0, BIO:2.0, BLL:2.0, BUD:2.0, CPH:2.0, FCO:2.0, KRK:2.0, LHR:2.0, MAD:2.0, MLH:2.0, MRS:2.0, MXP:2.0, OTP:2.0,
+    GOT:2.5, MMX:2.5, SZG:2.5, TRN:2.5, VCE:2.5, VNO:2.5,
+    ARN:3.0, MAN:3.0, NCE:3.0, OPO:3.0, ORY:3.0, RIX:3.0, SJJ:3.0, VLC:3.0,
+    BOD:3.5, LIS:3.5, OSL:3.5,
+    BGO:4.0, NTE:4.0,
+    ABZ:4.5, EDI:4.5, HEL:4.5, RNS:4.5,
+    BHX:5.0, DUB:5.0, TLS:5.0,
+    GLA:5.5, ORK:5.5, SVG:5.5,
+    BFS:6.0, SKP:6.0, SNN:6.0, TLL:6.0
+  }
+};
+// 查某目的港的 LH 转运费；有则返回 {fee, hub}，否则 null
+function getLHTransferFee(dest) {
+  const f = LH_TRANSFER_FEES.fees[String(dest || '').toUpperCase()];
+  return f !== undefined ? { fee: f, hub: LH_TRANSFER_FEES.hub } : null;
+}
+// 只读展示内置转运费（按费用分组）
+function renderTransferList() {
+  const box = $('transferList');
+  if (!box) return;
+  const g = {};
+  Object.keys(LH_TRANSFER_FEES.fees).forEach(d => { const f = LH_TRANSFER_FEES.fees[d]; (g[f] = g[f] || []).push(d); });
+  const lines = Object.keys(g).sort((a, b) => a - b).map(f =>
+    `<div style="font-size:12px;margin:2px 0;color:var(--text-2)"><b style="color:var(--accent)">+${f}</b>　${g[f].join(' / ')}</div>`
+  ).join('');
+  box.innerHTML = lines;
+}
+
 $('btnAddAdj').addEventListener('click', () => {
   const airline = $('adjAirline').value.trim().toUpperCase();
   if (!airline) { toast('请填航司代码'); return; }
   const delta = parseFloat($('adjDelta').value);
   if (isNaN(delta)) { toast('请填调整金额（如 -5 或 +3）'); return; }
+  if (!confirm(`确认对 ${airline} 添加限时优惠 ${delta>0?'+':''}${delta} 元/kg？\n生效后将叠加到该航司表价上参与匹配。`)) return;
   const adj = {
     id: uid(),
     airline,
@@ -2189,53 +2710,229 @@ $('adjModalMask').addEventListener('click', (e) => {
   if (e.target === $('adjModalMask')) $('adjModalMask').classList.remove('show');
 });
 
-// ---------- 快速查表 ----------
+// ---------- 快速查询（含目的港中文信息） ----------
+// IATA 三字码 → 中文信息（国家·州/省·城市）。覆盖业务常用目的港；未收录的只显示表价不显示中文。
+const AIRPORT_CN = {
+  PVG:'中国·上海(浦东)', SHA:'中国·上海(虹桥)', HKG:'中国·香港', CAN:'中国·广州', SZX:'中国·深圳', PEK:'中国·北京', CTU:'中国·成都', CKG:'中国·重庆', XMN:'中国·厦门', HGH:'中国·杭州', WUH:'中国·武汉', NKG:'中国·南京', TSN:'中国·天津',
+  NRT:'日本·千叶县·成田', HND:'日本·东京·羽田', KIX:'日本·大阪·关西', NGO:'日本·名古屋', FUK:'日本·福冈', OKA:'日本·冲绳',
+  ICN:'韩国·首尔·仁川', PUS:'韩国·釜山', TPE:'中国台湾·桃园', KHH:'中国台湾·高雄',
+  BKK:'泰国·曼谷', SIN:'新加坡·新加坡', KUL:'马来西亚·吉隆坡', PEN:'马来西亚·槟城',
+  CGK:'印度尼西亚·雅加达', DPS:'印度尼西亚·巴厘岛', MNL:'菲律宾·马尼拉', CEB:'菲律宾·宿务',
+  SGN:'越南·胡志明市', HAN:'越南·河内', DAD:'越南·岘港',
+  DEL:'印度·德里', BOM:'印度·孟买', MAA:'印度·金奈', BLR:'印度·班加罗尔',
+  DAC:'孟加拉·达卡', CMB:'斯里兰卡·科伦坡', KTM:'尼泊尔·加德满都',
+  DXB:'阿联酋·迪拜', AUH:'阿联酋·阿布扎比', SHJ:'阿联酋·沙迦', DOH:'卡塔尔·多哈', RUH:'沙特·利雅得', JED:'沙特·吉达', DMM:'沙特·达曼',
+  KWI:'科威特·科威特城', BAH:'巴林·麦纳麦', MCT:'阿曼·马斯喀特', TLV:'以色列·特拉维夫', BEY:'黎巴嫩·贝鲁特', AMM:'约旦·安曼', IST:'土耳其·伊斯坦布尔',
+  ISB:'巴基斯坦·伊斯兰堡', KHI:'巴基斯坦·卡拉奇', LHE:'巴基斯坦·拉合尔', TAS:'乌兹别克斯坦·塔什干', ALA:'哈萨克斯坦·阿拉木图', ULA:'蒙古·乌兰巴托',
+  MUC:'德国·慕尼黑', FRA:'德国·法兰克福', BER:'德国·柏林', HAM:'德国·汉堡', DUS:'德国·杜塞尔多夫', CGN:'德国·科隆', STR:'德国·斯图加特', NUE:'德国·纽伦堡', LEJ:'德国·莱比锡', BRE:'德国·不来梅', HAJ:'德国·汉诺威', FMO:'德国·明斯特', PAD:'德国·帕德博恩', NRN:'德国·杜塞尔多夫(韦策)',
+  CDG:'法国·巴黎', ORY:'法国·巴黎', LYS:'法国·里昂', MRS:'法国·马赛', NCE:'法国·尼斯', NTE:'法国·南特', BOD:'法国·波尔多', LIL:'法国·里尔', SXB:'法国·斯特拉斯堡', TLS:'法国·图卢兹', MLH:'法国·米卢斯',
+  LHR:'英国·伦敦', MAN:'英国·曼彻斯特', EDI:'英国·爱丁堡', GLA:'英国·格拉斯哥', BHX:'英国·伯明翰', BFS:'英国·贝尔法斯特', ABZ:'英国·阿伯丁', STN:'英国·伦敦(斯坦斯特德)',
+  AMS:'荷兰·阿姆斯特丹', RTM:'荷兰·鹿特丹', BRU:'比利时·布鲁塞尔', LGG:'比利时·列日',
+  ZRH:'瑞士·苏黎世', GVA:'瑞士·日内瓦', BSL:'瑞士·巴塞尔',
+  VIE:'奥地利·维也纳', GRZ:'奥地利·格拉茨', LNZ:'奥地利·林茨', SZG:'奥地利·萨尔茨堡',
+  MAD:'西班牙·马德里', BCN:'西班牙·巴塞罗那', VLC:'西班牙·瓦伦西亚', BIO:'西班牙·毕尔巴鄂',
+  LIS:'葡萄牙·里斯本', OPO:'葡萄牙·波尔图',
+  FCO:'意大利·罗马', MXP:'意大利·米兰', VCE:'意大利·威尼斯', TRN:'意大利·都灵', FLR:'意大利·佛罗伦萨', BLQ:'意大利·博洛尼亚', BGY:'意大利·贝加莫',
+  CPH:'丹麦·哥本哈根', ARN:'瑞典·斯德哥尔摩', GOT:'瑞典·哥德堡', MMX:'瑞典·马尔默',
+  OSL:'挪威·奥斯陆', BGO:'挪威·卑尔根', SVG:'挪威·斯塔万格',
+  HEL:'芬兰·赫尔辛基', RIX:'拉脱维亚·里加', VNO:'立陶宛·维尔纽斯', TLL:'爱沙尼亚·塔林',
+  WAW:'波兰·华沙', KRK:'波兰·克拉科夫', PRG:'捷克·布拉格', BUD:'匈牙利·布达佩斯', BTS:'斯洛伐克·布拉迪斯拉发',
+  LJU:'斯洛文尼亚·卢布尔雅那', ZAG:'克罗地亚·萨格勒布', SJJ:'波黑·萨拉热窝', BEG:'塞尔维亚·贝尔格莱德', SKP:'北马其顿·斯科普里',
+  TSR:'罗马尼亚·蒂米什瓦拉', OTP:'罗马尼亚·布加勒斯特', SOF:'保加利亚·索菲亚', ATH:'希腊·雅典',
+  DUB:'爱尔兰·都柏林', ORK:'爱尔兰·科克', LUX:'卢森堡·卢森堡',
+  JFK:'美国·纽约州·纽约', EWR:'美国·新泽西州·纽瓦克', LAX:'美国·加利福尼亚州·洛杉矶', SFO:'美国·加利福尼亚州·旧金山', ORD:'美国·伊利诺伊州·芝加哥',
+  DFW:'美国·得克萨斯州·达拉斯', IAH:'美国·得克萨斯州·休斯顿', MIA:'美国·佛罗里达州·迈阿密', ATL:'美国·佐治亚州·亚特兰大', SEA:'美国·华盛顿州·西雅图',
+  DEN:'美国·科罗拉多州·丹佛', BOS:'美国·马萨诸塞州·波士顿', PHL:'美国·宾夕法尼亚州·费城', WAS:'美国·华盛顿哥伦比亚特区·华盛顿', IAD:'美国·弗吉尼亚州·华盛顿杜勒斯',
+  MSP:'美国·明尼苏达州·明尼阿波利斯', DTW:'美国·密歇根州·底特律', PHX:'美国·亚利桑那州·菲尼克斯', LAS:'美国·内华达州·拉斯维加斯', PDX:'美国·俄勒冈州·波特兰', MEM:'美国·田纳西州·孟菲斯', ONT:'美国·加利福尼亚州·安大略', ANC:'美国·阿拉斯加州·安克雷奇',
+  YVR:'加拿大·不列颠哥伦比亚省·温哥华', YYZ:'加拿大·安大略省·多伦多', YUL:'加拿大·魁北克省·蒙特利尔', YYC:'加拿大·艾伯塔省·卡尔加里',
+  MEX:'墨西哥·墨西哥城', GDL:'墨西哥·哈利斯科州·瓜达拉哈拉', MTY:'墨西哥·新莱昂州·蒙特雷', CUN:'墨西哥·金塔纳罗奥州·坎昆', TIJ:'墨西哥·下加利福尼亚州·蒂华纳',
+  GUA:'危地马拉·危地马拉城', SJO:'哥斯达黎加·圣何塞', PTY:'巴拿马·巴拿马城', SDQ:'多米尼加·圣多明各', SJU:'波多黎各·圣胡安',
+  KIN:'牙买加·金斯敦', MBJ:'牙买加·蒙特哥贝', GCM:'开曼群岛·大开曼', UVF:'圣卢西亚·卡斯特里', STI:'多米尼加·圣地亚哥',
+  POS:'特立尼达和多巴哥·西班牙港', BGI:'巴巴多斯·布里奇敦', AUA:'阿鲁巴·奥拉涅斯塔德', ANU:'安提瓜和巴布达·圣约翰',
+  EZE:'阿根廷·布宜诺斯艾利斯', GYE:'厄瓜多尔·瓜亚基尔', UIO:'厄瓜多尔·基多', LIM:'秘鲁·利马', SCL:'智利·圣地亚哥', MVD:'乌拉圭·蒙得维的亚', ASU:'巴拉圭·亚松森',
+  GRU:'巴西·圣保罗', GIG:'巴西·里约热内卢', BSB:'巴西·巴西利亚', CWB:'巴西·库里蒂巴', POA:'巴西·阿雷格里港', VCP:'巴西·坎皮纳斯', MAO:'巴西·马瑙斯', CNF:'巴西·贝洛奥里藏特',
+  BOG:'哥伦比亚·波哥大', MDE:'哥伦比亚·麦德林', CLO:'哥伦比亚·卡利', MAR:'委内瑞拉·马拉开波', CCS:'委内瑞拉·加拉加斯', LPB:'玻利维亚·拉巴斯',
+  CAI:'埃及·开罗', JNB:'南非·约翰内斯堡', CPT:'南非·开普敦', DUR:'南非·德班', LOS:'尼日利亚·拉各斯', ABV:'尼日利亚·阿布贾',
+  NBO:'肯尼亚·内罗毕', ADD:'埃塞俄比亚·亚的斯亚贝巴', ACC:'加纳·阿克拉', DAR:'坦桑尼亚·达累斯萨拉姆', CMN:'摩洛哥·卡萨布兰卡', TUN:'突尼斯·突尼斯', ALG:'阿尔及利亚·阿尔及尔',
+  SYD:'澳大利亚·新南威尔士州·悉尼', MEL:'澳大利亚·维多利亚州·墨尔本', BNE:'澳大利亚·昆士兰州·布里斯班', PER:'澳大利亚·西澳大利亚州·珀斯', ADL:'澳大利亚·南澳大利亚州·阿德莱德', AKL:'新西兰·奥克兰', WLG:'新西兰·惠灵顿', CHC:'新西兰·基督城'
+};
+
 $('btnQuickSearch').addEventListener('click', () => {
   const dest = $('quickDest').value.trim().toUpperCase();
-  const w = parseFloat($('quickWeight').value) || 0;
   if (!dest) { toast('请输入目的港'); return; }
   const sheets = loadRates();
-  const wk = w > 0 ? matchWeightKey(w) : null;
   const box = $('quickResult');
   let html = '';
+  // 目的港中文信息（有收录才显示）
+  const info = AIRPORT_CN[dest];
+  if (info) {
+    html += '<div style="padding:10px 12px;background:var(--bg);border-radius:6px;margin-bottom:10px;font-size:13.5px">' +
+      '<b style="color:var(--primary);font-size:15px">' + dest + '</b>　' + info + '</div>';
+  }
+  // 表价：该目的港全部档位（标准 + 各比重档）各重量档价格
+  const ORDER = ['w45','w100','w300','w500','w1000'];
+  const rowPrices = (obj, label, adj) => {
+    const keys = ORDER.filter(k => obj && obj[k] !== undefined);
+    if (!keys.length) return '';
+    let s = '<div style="margin-top:4px;font-size:13px"><span style="color:var(--text-3);font-weight:600;margin-right:6px">' + label + '</span>';
+    keys.forEach(k => { const v = obj[k] + (k === 'w45' ? 0 : adj); s += '<span style="margin-right:8px">' + WEIGHT_LABEL[k] + ': ¥' + v + '</span>'; });
+    return s + '</div>';
+  };
+  let found = false;
   sheets.forEach(s => {
-    if (s.expired === true || (s.expiry && s.expiry < todayStr())) return;  // 跳过过期表价
-    const rows = (s.rows||[]).filter(r => normalizeDest(r.dest) === dest);
+    if (s.expired === true || (s.expiry && s.expiry < todayStr())) return;
+    const rows = (s.rows || []).filter(r => normalizeDest(r.dest) === dest);
     if (!rows.length) return;
-    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
-    html += '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
-    html += '<b>' + s.airline + '</b> ' + s.date;
-    if (adj !== 0) html += ' <span style="color:var(--accent)">(优惠' + (adj>0?'+':'') + adj + ')</span>';
-    html += '<br>';
+    found = true;
+    const adj = currentAdjFor(s.airline);
+    let part = '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
+    part += '<b>' + s.airline + '</b> ' + s.date;
+    if (adj !== 0) part += ' <span style="color:var(--accent)">(优惠' + (adj > 0 ? '+' : '') + adj + ')</span>';
     rows.forEach(r => {
-      const prices = r.prices || {};
-      const keys = Object.keys(prices).sort();
-      html += '<div style="margin-top:4px;font-size:13px">';
-      keys.forEach(k => {
-        const v = prices[k] + (k === 'w45' ? 0 : adj);
-        const highlight = wk === k ? 'background:var(--green-soft);padding:2px 6px;border-radius:3px' : '';
-        html += '<span style="' + highlight + ';margin-right:8px">' + WEIGHT_LABEL[k] + ': ¥' + v + '</span>';
+      part += rowPrices(r.prices, '标准', adj);
+      const dp = r.densityPrices || {};
+      Object.keys(dp).forEach(dk => {
+        part += rowPrices(dp[dk], (dk === 'flat' ? '平散货' : (DENSITY_LABEL[dk] || dk)), adj);
       });
-      html += '</div>';
     });
-    html += '</div>';
+    part += '</div>';
+    html += part;
   });
-  box.innerHTML = html || '<div class="empty">表价库里没有 ' + dest + '</div>';
+  if (!found && !info) html += '<div class="empty">表价库里没有 ' + dest + '</div>';
+  else if (!found && info) html += '<div style="margin-top:8px"><div class="empty">该目的港暂无匹配表价</div></div>';
+  box.innerHTML = html;
 });
+
+// ---------- 统配表价文字解析（托盘/散货 × 服务等级 × 重泡比重） ----------
+// 服务段动态识别（1-2天 / 3-4天 / 1-3天 / 5-7天 等）；主价 = 最后一段（慢服务）；variants = 各服务段 散货/托盘
+function parseUnifiedRateText(text) {
+  text = String(text || '').replace(/\s+/g, ' ');
+  const dm = text.match(/\b([A-Z]{3})\b/);
+  const dest = dm ? dm[1] : null;
+  let date = '';
+  const dm2 = text.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/);
+  if (dm2) date = `${new Date().getFullYear()}-${String(dm2[1]).padStart(2,'0')}-${String(dm2[2]).padStart(2,'0')}`;
+
+  // 动态切分服务段：匹配 "X-Y天服务" / "X-Y统配价格" / "X-Y服务" 等标签
+  const segRe = /(\d+)\s*-\s*(\d+)\s*(?:天)?\s*(?:统配价格|服务|统配|价格)?/gi;
+  const segs = [];
+  let m;
+  while ((m = segRe.exec(text))) {
+    segs.push({ label: `${m[1]}-${m[2]}天`, start: m.index + m[0].length });
+  }
+  segs.forEach((s, i) => {
+    s.end = i < segs.length - 1 ? segs[i + 1].start : text.length;
+    s.content = text.slice(s.start, s.end).trim();
+  });
+
+  function parseSeg(seg) {
+    // 兼容两种格式：①重档独立"重托/重散"行（ORD）；②重档挂在"托盘/散货"行内（LAX 的 "托盘52 1:200 46..."）
+    const grab = (name, nexts) => {
+      const re = new RegExp(name + '\\s*([^]*?)(?=' + nexts.join('|') + '|$)', 'i');
+      const m = seg.match(re);
+      return m ? m[1] : '';
+    };
+    const firstNum = (s) => { const m = s.match(/(\d+(?:\.\d+)?)/); return m ? +m[1] : null; };
+    const heavies = (s) => { const o = {}; const re = /1:(\d+)\s+(\d+(?:\.\d+)?)/g; let x; while ((x = re.exec(s))) o[+x[1]] = +x[2]; return o; };
+    const merge = (...objs) => { const o = {}; objs.forEach(x => Object.keys(x).forEach(k => o[k] = x[k])); return o; };
+    const nxt = '托盘|散货|泡托|泡散|重托|重散';
+    const palBlk = grab('托盘', [nxt]);
+    const bulkBlk = grab('散货', [nxt]);
+    const htBlk = grab('重托', [nxt]);
+    const hsBlk = grab('重散', [nxt]);
+    const btBlk = grab('泡托', [nxt]);
+    const bsBlk = grab('泡散', [nxt]);
+    return {
+      palBase: firstNum(palBlk),
+      bulkBase: firstNum(bulkBlk),
+      heavyPal: merge(heavies(palBlk), heavies(htBlk)),
+      heavyBulk: merge(heavies(bulkBlk), heavies(hsBlk)),
+      bubblePal: heavies(btBlk),
+      bubbleBulk: heavies(bsBlk),
+    };
+  }
+  const parsed = segs.map(s => Object.assign(parseSeg(s.content), { label: s.label }));
+  // 过滤真正含价格（托盘或散货）的段
+  const valid = parsed.filter(p => p.palBase !== null || p.bulkBase !== null);
+  if (!valid.length) return { dest, date, ok: false, rows: [] };
+  // 主价 = 最后一段（慢服务，如 3-4天 / 5-7天）
+  const main = valid[valid.length - 1];
+  const others = valid.slice(0, -1);
+
+  // 比重阶梯：动态从解析到的比重 key 构建（泡档 <1:N、平档 flat、重档 1:N+，含 1:1000 等）
+  const dpKeys = new Set();
+  valid.forEach(p => {
+    Object.keys(p.bubblePal).forEach(k => dpKeys.add(`<1:${k}`));
+    Object.keys(p.bubbleBulk).forEach(k => dpKeys.add(`<1:${k}`));
+    Object.keys(p.heavyPal).forEach(k => dpKeys.add(`1:${k}+`));
+    Object.keys(p.heavyBulk).forEach(k => dpKeys.add(`1:${k}+`));
+  });
+  const defParts = [];
+  dpKeys.forEach(k => {
+    if (k.startsWith('<1:')) defParts.push({ key: k, max: +k.slice(3) });
+    else if (k.endsWith('+')) defParts.push({ key: k, min: +k.slice(2, -1) });
+  });
+  defParts.push({ key: 'flat', flat: true });
+  const densityDef = buildDensityDef(defParts);
+
+  function densityFor(p, isPal) {
+    const d = {};
+    const bubble = isPal ? p.bubblePal : p.bubbleBulk;
+    Object.keys(bubble).forEach(k => { if (bubble[k] !== undefined) d[`<1:${k}`] = bubble[k]; });
+    const fb = isPal ? p.palBase : p.bulkBase; if (fb !== null && fb !== undefined) d['flat'] = fb;
+    const heavy = isPal ? p.heavyPal : p.heavyBulk;
+    Object.keys(heavy).forEach(k => { if (heavy[k] !== undefined) d[`1:${k}+`] = heavy[k]; });
+    return d;
+  }
+  const wKeys = ['w45', 'w100', 'w300', 'w500', 'w1000'];
+  function toDensityPrices(d) { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys.forEach(w => out[k][w] = d[k]); }); return out; }
+
+  const service = `${main.label}散货`;
+  const mainDensity = densityFor(main, false); // 主价段散货
+  const variants = {};
+  if (main.palBase !== null) variants[`${main.label}托盘`] = { densityPrices: toDensityPrices(densityFor(main, true)) };
+  others.forEach(o => {
+    if (o.bulkBase !== null) variants[`${o.label}散货`] = { densityPrices: toDensityPrices(densityFor(o, false)) };
+    if (o.palBase !== null) variants[`${o.label}托盘`] = { densityPrices: toDensityPrices(densityFor(o, true)) };
+  });
+
+  const row = {
+    dest, densityDef,
+    densityPrices: toDensityPrices(mainDensity),
+    variants: Object.keys(variants).length ? variants : null,
+    service,
+    remark: `${dest} 统配 · 主价=${service}`
+  };
+  return { dest, date, ok: !!mainDensity['flat'], rows: [row] };
+}
 
 // ---------- 粘贴识别文字表价 ----------
 $('btnParsePasted').addEventListener('click', () => {
-  const text = $('pastedRate').value.trim();
-  if (!text) { toast('请先粘贴表价文字'); return; }
-  const destMatch = text.match(/\b([A-Z]{3})\b/g);
-  let dests = [];
-  if (destMatch) {
-    dests = destMatch.filter(function(d) { return ['CNY','RMB','USD'].indexOf(d) < 0; });
-    dests = Array.from(new Set(dests));
+  try {
+    const text = $('pastedRate').value.trim();
+    if (!text) { toast('请先粘贴表价文字'); return; }
+    const res = parseUnifiedRateText(text);
+    if (!res.dest || !res.ok || !res.rows.length) { toast('未能识别为统配表价（需含 托盘/散货 + 重托/重散/泡托/泡散），请用Excel导入或手动录入'); return; }
+    // 行转工具结构：_densityDef 提升到表级供匹配
+    const rows = res.rows.map(r => {
+      const c = Object.assign({}, r);
+      c._densityDef = r.densityDef;
+      delete c.densityDef;
+      return c;
+    });
+    parsedRows = rows;
+    showRatePreview(rows);
+    if (res.date && $('rateDate')) $('rateDate').value = res.date;
+    const vNames = res.rows[0].variants ? Object.keys(res.rows[0].variants).join(' / ') : '无参考价';
+    $('pastedPreview').innerHTML =
+      `<div style="font-size:13px;color:var(--green)">✔ 识别到 <b>${res.dest}</b> 统配表价（生效 ${res.date||'未识别'}）</div>` +
+      `<div style="font-size:12.5px;color:var(--text-2);margin-top:4px">主价 = 3-4天散货；参考价：${vNames}</div>` +
+      `<div style="font-size:12px;color:var(--text-3);margin-top:4px">请填航司代码后点「保存表价」入库。</div>`;
+    toast(`✔ 识别到 ${res.dest} 统配表价`);
+  } catch (e) {
+    console.error('识别出错:', e);
+    toast('识别过程出错: ' + (e && e.message));
   }
-  if (!dests.length) { toast('没识别到目的港'); return; }
-  const numbers = text.match(/\d+(?:\.\d+)?/g);
-  $('pastedPreview').innerHTML = '<div style="font-size:13px">识别到目的港：<b>' + dests.join(', ') + '</b>（共 ' + (numbers?numbers.length:0) + ' 个数字）<br><span style="color:var(--text-3)">详细价格解析功能待完善，请用Excel导入或手动录入。</span></div>';
 });
 function openRateDetail(id) {
   const s = loadRates().find(x => x.id === id);
@@ -2252,27 +2949,81 @@ function openRateDetail(id) {
     html += `<div style="margin-bottom:12px"><img src="${s.image}" style="max-width:100%;border:1px solid var(--border);border-radius:6px"></div>`;
   }
   if (s.rows && s.rows.length) {
-    const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k => s.rows.some(r => r.prices[k] !== undefined));
-    const labels = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
-    html += `<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th>`;
-    weightKeys.forEach(k => html += `<th>${labels[k]}</th>`);
-    html += `<th>备注</th></tr></thead><tbody>`;
-    s.rows.forEach(r => {
-      html += `<tr><td><b>${r.dest}</b></td>`;
-      weightKeys.forEach(k => {
-        const v = r.prices[k];
-        if (v === undefined) { html += '<td>-</td>'; return; }
-        // 45kg 档不叠加优惠
-        const effective = (k === 'w45') ? v : v + adj;
-        if (adj !== 0 && k !== 'w45') {
-          html += `<td>${effective} <small style="color:var(--text-3);text-decoration:line-through">${v}</small></td>`;
-        } else {
-          html += `<td>${effective}</td>`;
-        }
+    // 统配表（托盘/散货×服务等级）才有 service+variants；普通表（LH/AA）只有标准价+比重档
+    const isUnified = s.rows.some(r => r.service && r.variants && Object.keys(r.variants).length > 0);
+    if (isUnified) {
+      // 统配表：主价=service(散货)；其余 = variants 各服务段 散货/托盘
+      const mainService = s.rows[0].service || '散货';
+      const vKeys = s.rows[0].variants ? Object.keys(s.rows[0].variants) : [];
+      const cols = [mainService, ...vKeys];
+      html += '<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th><th>比重</th>' +
+        cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+      s.rows.forEach(r => {
+        if (!r.densityPrices) return;
+        // 比重档取所有段（主价+各参考）的并集，按 泡档(max 升序) → 平档 → 重档(min 升序) 排序
+        const allDk = new Set(Object.keys(r.densityPrices));
+        if (r.variants) Object.values(r.variants).forEach(v => { if (v.densityPrices) Object.keys(v.densityPrices).forEach(k => allDk.add(k)); });
+        const dOrder = [...allDk].map(k => {
+          if (k.startsWith('<1:')) return { k, ord: 0, v: +k.slice(3) };
+          if (k === 'flat') return { k, ord: 1, v: 0 };
+          return { k, ord: 2, v: +k.slice(2, -1) };
+        }).sort((a, b) => a.ord !== b.ord ? a.ord - b.ord : a.v - b.v).map(o => o.k);
+        const variantOf = (lb, dk) => {
+          const v = r.variants && r.variants[lb] && r.variants[lb].densityPrices && r.variants[lb].densityPrices[dk];
+          return v !== undefined ? v.w100 + adj : null;
+        };
+        dOrder.forEach(dk => {
+          const main = r.densityPrices[dk];
+          let rh = `<tr><td><b>${r.dest}</b></td><td>${DENSITY_LABEL[dk]||dk}</td>` +
+            `<td style="font-weight:600">${main ? '¥'+(main.w100 + adj) : '-'}</td>`;
+          vKeys.forEach(lb => {
+            const v = variantOf(lb, dk);
+            rh += `<td>${v !== null ? '¥'+v : '-'}</td>`;
+          });
+          rh += '</tr>';
+          html += rh;
+        });
       });
-      html += `<td style="font-size:12px;color:var(--text-2)">${r.remark||''}</td></tr>`;
-    });
-    html += '</tbody></table></div>';
+      html += '</tbody></table></div>';
+    } else {
+      // 普通表（LH/AA）：标准重量档 + 各比重档；flat 视为"平散货"主档（不重复显示）
+      const weightKeys = ['w45','w100','w300','w500','w1000'].filter(k =>
+        s.rows.some(r => (r.prices && r.prices[k] !== undefined) ||
+          (r.densityPrices && Object.values(r.densityPrices).some(d => d[k] !== undefined)))
+      );
+      const labels = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
+      html += `<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th><th>比重</th>`;
+      weightKeys.forEach(k => html += `<th>${labels[k]}</th>`);
+      html += `</tr></thead><tbody>`;
+      const cell = (v, k) => {
+        if (v === undefined) return '<td>-</td>';
+        if (k === 'w45' || adj === 0) return `<td>${v}</td>`;
+        return `<td>${v + adj} <small style="color:var(--text-3);text-decoration:line-through">${v}</small></td>`;
+      };
+      const isShanghaiAA = /上海AA/.test(s.airline || '');
+      const isAA128 = /AA128/.test(s.airline || '');
+      s.rows.forEach(r => {
+        const dp = r.densityPrices && Object.keys(r.densityPrices).length ? r.densityPrices : null;
+        const hasFlat = !!(dp && dp['flat']);
+        const densityKeys = dp ? Object.keys(dp).filter(k => k !== 'flat') : [];
+        // 上海AA：无比重档时标准主行不显示；AA128：标准档显示为"平散货"
+        const showMain = !(isShanghaiAA && !hasFlat);
+        const mainLabel = (hasFlat || isAA128) ? '平散货' : '标准';
+        const mainPrices = hasFlat ? dp['flat'] : r.prices;
+        const span = (showMain ? 1 : 0) + densityKeys.length;
+        if (showMain) {
+          html += `<tr><td rowspan="${span}"><b>${r.dest}</b></td><td>${mainLabel}</td>`;
+          weightKeys.forEach(k => html += cell(mainPrices ? mainPrices[k] : undefined, k));
+          html += `</tr>`;
+        }
+        densityKeys.forEach(dk => {
+          html += `<tr>${!showMain ? `<td rowspan="${span}"><b>${r.dest}</b></td>` : ''}<td>${DENSITY_LABEL[dk]||dk}</td>`;
+          weightKeys.forEach(k => html += cell(dp[dk][k], k));
+          html += `</tr>`;
+        });
+      });
+      html += '</tbody></table></div>';
+    }
   } else if (!s.image) {
     html += '<div class="empty">这条表价还没有数据</div>';
   }
@@ -2381,24 +3132,47 @@ $('btnSaveSync').addEventListener('click', () => {
   toast('登录成功，数据开始同步');
 });
 
-$('btnPullCloud').addEventListener('click', async () => {
-  toast('正在从云端拉取...');
+// 双向合并：按 id 合并本地与云端（本地优先保留现场，云端独有补入；含时间戳的取较新）
+function mergeById(localArr, cloudArr, timeKey) {
+  const map = new Map();
+  (localArr || []).forEach(x => { if (x && x.id) map.set(x.id, x); });
+  (cloudArr || []).forEach(x => {
+    if (!x || !x.id) return;
+    const exist = map.get(x.id);
+    if (!exist) { map.set(x.id, x); return; }
+    if (timeKey && exist[timeKey] && x[timeKey] && x[timeKey] > exist[timeKey]) map.set(x.id, x);
+  });
+  return Array.from(map.values());
+}
+
+$('btnCloudSync').addEventListener('click', async () => {
+  toast('正在 Cloudflare 双向同步...');
   const [inq, rates, adjs] = await Promise.all([
     syncFromCloud('/api/inquiries'),
     syncFromCloud('/api/rates'),
     syncFromCloud('/api/adjustments')
   ]);
-  if (inq && inq.length) { saveAll(inq); renderList(); }
-  if (rates && rates.length) { saveRates(rates); renderRateList(); }
-  if (adjs && adjs.length) { saveAdjs(adjs); renderAdjList(); }
-  toast('云端数据已合并到本地');
-});
-
-$('btnPushCloud').addEventListener('click', () => {
-  syncToCloud('/api/inquiries', loadAll());
-  syncToCloud('/api/rates', loadRates());
-  syncToCloud('/api/adjustments', loadAdjs());
-  toast('本地数据已推到云端');
+  // 合并：报价记录无时间戳→本地优先保留现场；表价/调价有时间戳→取较新
+  const mInq = mergeById(loadAll(), inq.data);
+  const mRates = mergeById(loadRates(), rates.data, 'created_at');
+  const mAdjs = mergeById(loadAdjs(), adjs.data, 'created_at');
+  saveAll(mInq); renderList();
+  saveRates(mRates); renderRateList();
+  saveAdjs(mAdjs); renderAdjList();
+  // 回写云端，保证两端一致完整
+  const push = await Promise.all([
+    syncToCloud('/api/inquiries', mInq),
+    syncToCloud('/api/rates', mRates),
+    syncToCloud('/api/adjustments', mAdjs)
+  ]);
+  const label = ['报价记录', '表价', '优惠'];
+  const pullFail = [inq, rates, adjs].map((x, i) => x.ok ? null : label[i]).filter(Boolean);
+  const pushFail = label.filter((n, i) => !push[i]);
+  if (pullFail.length || pushFail.length) {
+    toast('同步未完全成功：拉取失败[' + (pullFail.join('、') || '无') + '] 推送失败[' + (pushFail.join('、') || '无') + ']');
+  } else {
+    toast('Cloudflare 双向同步完成：本机与云端均为最新完整数据');
+  }
 });
 
 // 初始化
