@@ -1,7 +1,7 @@
 # ✈️ 空运货代工具
 > 纯前端本地空运货代业务工具，浏览器直接运行，无需服务器、无需安装软件。
 > 数据默认存储浏览器 LocalStorage，支持 JSON备份恢复 / CSV导出分析 / Cloudflare Worker云同步。
-> 📱 已做 iPhone12 / iPhone12 ProMax 移动端适配，PC、手机浏览器均可操作。
+> 📱 已做移动端适配，PC、手机浏览器均可操作。
 
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-在线体验-green)](https://x-zod.github.io/cargotools/)
 
