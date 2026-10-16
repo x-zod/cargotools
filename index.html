@@ -863,7 +863,7 @@ function esc(s) {
 // 噪音词：这些3字母大写不是目的港
 const NOISE_DEST = new Set([
   'THE','AND','FOR','FROM','PCS','CTN','KGS','CBM','PKG','TOTAL','GROSS','WEIGHT',
-  'BULK','PLT','PAL','PVG','SHA','CAN','PEK','HKG','SZX','NRT','KIX','ICN','SIN',
+  'BOX','BAG','BULK','PLT','PAL','PVG','SHA','CAN','PEK','HKG','SZX','NRT','KIX','ICN','SIN',
   'BKK','JED','RUH','CGO','TFU','WUH','NGB','TAO','DLC','TSN','CKG','KMG','HGH',
   'FOC','CSX','HRB','SHE','URC','LXA','JNB','DKR','LOS','CAI','ADD','RUN','MBA',
   'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE',
@@ -885,21 +885,21 @@ function parseText(text) {
   const out = { dest:'', pieces:'', weight:'', volume:'', dims:'' };
 
   // 目的港：优先 AAA--BBB / AAA-BBB / AAA/BBB 航线格式，取BBB
-  let m = t.match(/\b([A-Z]{3})\s*[-\/]{1,2}\s*([A-Z]{3})\b/);
+  let m = t.match(/\b([A-Za-z]{3})\s*[-\/]{1,2}\s*([A-Za-z]{3})\b/);
   if (m) {
     out.dest = m[2];
   } else {
-    // 独立3字母大写，按出现顺序取第一个非噪音
-    const cands = t.match(/\b([A-Z]{3})\b/g);
+    // 独立3字母（大小写均可），按出现顺序取第一个非噪音
+    const cands = t.match(/\b([A-Za-z]{3})\b/g);
     if (cands) {
       for (const c of cands) {
-        if (!NOISE_DEST.has(c)) { out.dest = c; break; }
+        if (!NOISE_DEST.has(c.toUpperCase())) { out.dest = c; break; }
       }
     }
   }
   // 兜底：如果没抓到3字母，抓中文字里的IATA代码（如"洛杉矶LAX"）
   if (!out.dest) {
-    m = t.match(/[A-Z]{3}/);
+    m = t.match(/\b[A-Za-z]{3}\b/);
     if (m) out.dest = m[0];
   }
   out.dest = (out.dest || '').toUpperCase().slice(0,3);
@@ -909,7 +909,7 @@ function parseText(text) {
   if (m) out.volume = m[1];
 
   // 紧凑件/重/体：件数+单位/毛重/体积（如 2PLTS/1160/1.13、8BOXES/164/0.22；件数可带 PLTS/BOXES 等单位，毛重/体积可无单位）
-  m = t.match(/(\d+)(?:[A-Z]{2,6})?\s*\/\s*([\d.,]+)\s*\/\s*(\d+(?:\.\d+)?)\b/);
+  m = t.match(/(\d+)(?:[A-Za-z]{2,8})?\s*\/\s*([\d.,]+)\s*\/\s*(\d+(?:\.\d+)?)\b/);
   if (m) {
     if (!out.pieces) out.pieces = m[1];
     if (!out.weight) out.weight = m[2].replace(',', '.');
@@ -981,7 +981,7 @@ function parseText(text) {
   // 紧凑格式：DFW 3/360/3 = 3件/360kg/3方（兜底，仅在上面都没识别到时）
   if (!out.pieces || !out.weight || !out.volume) {
     // 目的港在末尾：146 / 1316 / 9.52     DFW → 146件/1316kg/9.52方
-    m = t.match(/\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Z]{3})\b/);
+    m = t.match(/\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Za-z]{3})\b/);
     if (m) {
       if (!out.pieces) out.pieces = m[1];
       if (!out.weight) out.weight = m[2];
@@ -989,7 +989,7 @@ function parseText(text) {
       out.dest = m[4];
     } else {
       // 目的港在开头：DFW 3/360/3 = 3件/360kg/3方
-      m = t.match(/\b([A-Z]{3})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\b/);
+      m = t.match(/\b([A-Za-z]{3})\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\b/);
       if (m) {
         // 第二个数字是重量（kg），第三个是体积（CBM），第一个是件数
         if (!out.pieces) out.pieces = m[2];
@@ -1050,7 +1050,7 @@ function parseTextMulti(text) {
 
   // 目的港在末尾的多票：146 / 1316 / 9.52     DFW，106 / 1690 / 11.27   DFW
   // 每段 = 件/重/体 斜杠 + 空格 + 末尾目的港
-  const tailRe = /\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Z]{3})\b/g;
+  const tailRe = /\b(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s+([A-Za-z]{3})\b/g;
   const tailMatches = [];
   let tm;
   while ((tm = tailRe.exec(t)) !== null) tailMatches.push({ start: tm.index, end: tailRe.lastIndex, dest: tm[4] });
@@ -1060,13 +1060,13 @@ function parseTextMulti(text) {
       const segStart = i === 0 ? 0 : tailMatches[i-1].end;
       const segEnd = tailMatches[i].end;
       const p = parseText(t.slice(segStart, segEnd));
-      segs.push({ ...p, dest: tailMatches[i].dest, rawDest: tailMatches[i].dest });
+      segs.push({ ...p, dest: tailMatches[i].dest.toUpperCase(), rawDest: tailMatches[i].dest.toUpperCase() });
     }
     if (segs.some(s => s.pieces || s.weight || s.volume)) return segs;
   }
 
   // 找所有 AAA--BBB / AAA-BBB / AAA/BBB 航线模式
-  const routeRe = /\b([A-Z]{3})\s*[-\/]{1,2}\s*([A-Z]{3})\b/g;
+  const routeRe = /\b([A-Za-z]{3})\s*[-\/]{1,2}\s*([A-Za-z]{3})\b/g;
   const routes = [];
   let m;
   while ((m = routeRe.exec(t)) !== null) {
@@ -1074,10 +1074,10 @@ function parseTextMulti(text) {
   }
 
   // 找所有独立3字母大写（不在噪音、不在route内）
-  const standRe = /\b([A-Z]{3})\b/g;
+  const standRe = /\b([A-Za-z]{3})\b/g;
   const stands = [];
   while ((m = standRe.exec(t)) !== null) {
-    if (NOISE_DEST.has(m[1])) continue;
+    if (NOISE_DEST.has(m[1].toUpperCase())) continue;
     const inRoute = routes.some(r => m.index >= r.start && m.index < r.end);
     if (inRoute) continue;
     stands.push({ start: m.index, end: m.index + 3, dest: m[1] });
@@ -1105,7 +1105,7 @@ function parseTextMulti(text) {
   const out = [];
   segments.forEach((seg, si) => {
     const p = parseText(seg.text);
-    if (!p.dest) p.dest = seg.dest;
+    if (!p.dest) p.dest = (seg.dest || '').toUpperCase();
     if (p.dest) { p._si = si; out.push(p); }
   });
 
