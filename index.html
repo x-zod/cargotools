@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>空运货代工具</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231456f0'/%3E%3Cpath d='M50 34 L34 32 L42 18 L38 16 L30 30 L18 28 L14 32 L28 38 L26 46 L30 48 L36 38 L48 40 Z' fill='white'/%3E%3C/svg%3E">
 <style>
@@ -118,27 +118,6 @@
   .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .row-3 { grid-template-columns: repeat(3, 1fr); }
   .row-2 { grid-template-columns: repeat(2, 1fr); }
-  @media (max-width: 720px) {
-    body { padding: 10px; }
-    .app { padding: 10px; }
-    .tabs {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      gap: 0;
-    }
-    .tab { padding: 12px 14px; white-space: nowrap; font-size: 14px; }
-    .card { padding: 12px; margin-bottom: 10px; }
-    .card-title { font-size: 15px; margin-bottom: 10px; }
-    .row, .row-3, .row-2, .row-4 { grid-template-columns: 1fr !important; gap: 8px; }
-    .field input, .field select, textarea { font-size: 16px !important; padding: 10px 12px !important; }
-    .btn { padding: 12px 16px; font-size: 14px; }
-    table { font-size: 12px; }
-    th, td { padding: 6px 8px; }
-    .btn-row { flex-wrap: wrap; gap: 8px; }
-    .btn-row .btn { flex: 1; justify-content: center; }
-    .parsed-grid { grid-template-columns: 1fr; }
-    .modal { width: 95% !important; margin: 10px auto; }
-  }
   /* ===== 按钮（全局统一为后台管理大小） ===== */
   .btn {
     padding: 5px 12px;
@@ -307,8 +286,114 @@
   .result { background:var(--primary-soft); color:var(--primary); font-weight:600; }
   .dim-row { display:flex; gap:6px; align-items:center; margin:6px 0; flex-wrap:wrap; }
   .dim-row input { width:80px; padding:5px 8px; border:1px solid var(--border); border-radius:4px; font-size:13px; }
+
+  /* ============ 移动端适配（≤720px，iPhone 12 / 12 Pro Max）============ */
+  @media (max-width: 720px) {
+    /* --- 顶部导航：两行（brand 一行，tabs 横滑一行）--- */
+    .topbar {
+      height: auto;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 0;
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    .brand { height: 46px; padding: 0 14px; font-size: 14px; }
+    .tabs {
+      flex: 0 0 100%;
+      width: 100%;
+      height: auto;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      gap: 0;
+      border-top: 1px solid var(--border);
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { padding: 10px 14px; white-space: nowrap; font-size: 13.5px; }
+    /* --- 主区域 --- */
+    .main { padding: 12px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+    .card { padding: 14px; margin-bottom: 12px; }
+    .card-title { font-size: 14px; margin-bottom: 10px; }
+    /* --- 表单：单列；输入 16px 防 iOS 聚焦缩放 --- */
+    .row, .row-3, .row-2, .row-4 { grid-template-columns: 1fr !important; gap: 8px; }
+    .parsed-grid { grid-template-columns: 1fr; }
+    textarea, input, select,
+    .field textarea, .field input, .field select,
+    .dim-row input, .login-box input, .quick-search input { font-size: 16px !important; }
+    /* --- 主要操作按钮（btn-row 内满宽，便于触摸）--- */
+    .btn-row { flex-wrap: wrap; gap: 8px; }
+    .btn-row .btn { flex: 1 1 auto; justify-content: center; padding: 11px 14px; font-size: 14px; }
+    /* --- 弹窗 --- */
+    .modal { width: 95% !important; margin: 10px auto; }
+    .modal-mask { padding: 12px; }
+    /* --- 匹配卡：信息在上、价格在下 --- */
+    .similar-item { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; }
+    .similar-left { min-width: 0; }
+    .similar-price { align-self: flex-end; font-size: 17px; }
+    /* --- 宽表卡片化（报价记录 / 已导入表）--- */
+    .mobile-cards { background: transparent; }
+    .mobile-cards thead { display: none; }
+    .mobile-cards tbody { display: block; padding: 10px; }
+    .mobile-cards tr {
+      display: block;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      padding: 6px 12px;
+    }
+    .mobile-cards tr:hover td { background: transparent; }
+    .mobile-cards td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      text-align: right;
+      padding: 7px 0;
+      border-bottom: 1px dashed var(--border);
+      font-size: 13px;
+    }
+    .mobile-cards td:last-child { border-bottom: none; }
+    .mobile-cards td::before {
+      content: attr(data-label);
+      flex: 0 0 auto;
+      text-align: left;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+    .mobile-cards .rate-actions { flex-wrap: wrap; justify-content: flex-end; }
+    /* 操作行：标签在上、按钮组独占一行均分，避免 iOS 字体更宽时裁切 */
+    .mobile-cards td[data-label="操作"] { flex-direction: column; align-items: stretch; gap: 8px; }
+    .mobile-cards td[data-label="操作"] > button { align-self: flex-start; }
+    .mobile-cards td[data-label="操作"] .rate-actions { width: 100%; justify-content: space-between; }
+    .mobile-cards td[data-label="操作"] .rate-actions .btn { flex: 0 0 auto; min-width: 0; padding-left: 8px; padding-right: 8px; white-space: nowrap; }
+    /* 日期框：去掉原生外观差，与文本框同高同宽，日历图标保留 */
+    input[type=date] { -webkit-appearance: none; appearance: none; min-height: 0; height: 41px; box-sizing: border-box; }
+    /* --- 成本计算：table 转纵向，label 在上、输入在下 --- */
+    .cc-table, .cc-table tbody, .cc-table tr { display: block; }
+    .cc-table colgroup { display: none; }
+    .cc-table tr { padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .cc-table tr:last-child { border-bottom: none; }
+    .cc-table td { display: block; width: 100%; padding: 4px 0; border: none; text-align: left; font-size: 14px; }
+    .cc-table td.result { font-weight: 700; font-size: 16px; }
+  }
+
+  /* ============ 手机横屏（高度≤500）：补左右安全区 + 紧凑顶栏 ============ */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .topbar {
+      height: 44px;
+      padding-left: calc(20px + env(safe-area-inset-left));
+      padding-right: calc(20px + env(safe-area-inset-right));
+    }
+    .tab { padding-top: 6px; padding-bottom: 6px; }
+    .main {
+      padding-left: calc(16px + env(safe-area-inset-left));
+      padding-right: calc(16px + env(safe-area-inset-right));
+    }
+  }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';document.head.appendChild(s);"></script>
 </head>
 <body>
 
@@ -412,7 +497,7 @@
     </div>
   </div>
   <div class="card" style="padding:0; overflow:hidden">
-    <table>
+    <table class="mobile-cards">
       <thead>
         <tr>
           <th style="width:90px">日期</th>
@@ -447,7 +532,7 @@
 
   <div class="card" style="padding:0;overflow:hidden">
     <div class="card-title" style="padding:14px 16px 0">已导入表价</div>
-    <table>
+    <table class="mobile-cards">
       <thead>
         <tr>
           <th style="width:80px">航司</th>
@@ -521,7 +606,7 @@
 <div class="view" id="view-cost">
   <div class="card">
     <div class="card-title">基础参数</div>
-    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:40%"><col style="width:15%"><col style="width:15%"></colgroup>
+    <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:40%"><col style="width:15%"><col style="width:15%"></colgroup>
       <tr>
         <td>总体积 (m³)</td>
         <td><input id="ccVolume" type="number" step="0.0001" inputmode="decimal" placeholder="直接输入总体积">
@@ -572,7 +657,7 @@
 
   <div class="card">
     <div class="card-title">成本与售价</div>
-    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
+    <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
       <tr>
         <td>成本单价 RMB/KG</td>
         <td><input id="ccRmb" type="number" step="0.01" inputmode="decimal" placeholder="输入成本"></td>
@@ -596,7 +681,7 @@
 
   <div class="card">
     <div class="card-title">总成本</div>
-    <table style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:70%"></colgroup>
+    <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:70%"></colgroup>
       <tr><td>总成本 RMB</td><td class="result" id="ccTotalRmb">-</td></tr>
       <tr><td>总成本 USD</td><td class="result" id="ccTotalUsd">-</td></tr>
     </table>
@@ -1745,15 +1830,15 @@ let _lastFiltered = [];
 function rowHtml(r) {
   const c = calc(r.weight, r.volume);
   return `<tr>
-      <td>${r.date.slice(5)}</td>
-      <td><b>${esc(r.dest)}</b></td>
-      <td>${r.pieces||'-'} / ${fmtNum(c.weight,0)} / ${fmtNum(c.volume,2)}</td>
-      <td>${c.ratio>0?('1:'+fmtNum(c.ratio,0)):'-'}</td>
-      <td>${esc(r.customer)}${r.remark?('<span style="color:var(--text-3)"> · '+esc(r.remark)+'</span>'):''}</td>
-      <td>${r.ratePrice?('<span class="adopted-price">¥'+fmtNum(r.ratePrice,2)+'</span><div style="font-size:11px;color:var(--text-3)">'+esc(r.rateAirline||'')+(r.rateTransit?(' · '+esc(r.rateTransit)):'')+'</div>'):'<span class="tag tag-gray">-</span>'}</td>
-      <td>${r.outerPrice?('<span style="color:var(--accent)">¥'+fmtNum(r.outerPrice,2)+'</span>'+(r.outerSupplier?'<br><span style="font-size:11px;color:var(--text-3)">'+esc(r.outerSupplier)+'</span>':'')):'<span class="tag tag-gray">-</span>'}</td>
-      <td>${r.customerPrice?('<b style="color:var(--primary)">¥'+fmtNum(r.customerPrice,2)+'</b>'):'<span class="tag tag-gray">-</span>'}</td>
-      <td><button class="btn btn-ghost btn-sm" data-id="${r.id}">详情</button></td>
+      <td data-label="日期">${r.date.slice(5)}</td>
+      <td data-label="目的港"><b>${esc(r.dest)}</b></td>
+      <td data-label="件数/重量/体积">${r.pieces||'-'} / ${fmtNum(c.weight,0)} / ${fmtNum(c.volume,2)}</td>
+      <td data-label="比例">${c.ratio>0?('1:'+fmtNum(c.ratio,0)):'-'}</td>
+      <td data-label="客户/备注">${esc(r.customer)}${r.remark?('<span style="color:var(--text-3)"> · '+esc(r.remark)+'</span>'):''}</td>
+      <td data-label="表价">${r.ratePrice?('<span class="adopted-price">¥'+fmtNum(r.ratePrice,2)+'</span><div style="font-size:11px;color:var(--text-3)">'+esc(r.rateAirline||'')+(r.rateTransit?(' · '+esc(r.rateTransit)):'')+'</div>'):'<span class="tag tag-gray">-</span>'}</td>
+      <td data-label="外配">${r.outerPrice?('<span style="color:var(--accent)">¥'+fmtNum(r.outerPrice,2)+'</span>'+(r.outerSupplier?'<br><span style="font-size:11px;color:var(--text-3)">'+esc(r.outerSupplier)+'</span>':'')):'<span class="tag tag-gray">-</span>'}</td>
+      <td data-label="卖价">${r.customerPrice?('<b style="color:var(--primary)">¥'+fmtNum(r.customerPrice,2)+'</b>'):'<span class="tag tag-gray">-</span>'}</td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="${r.id}">详情</button></td>
     </tr>`;
 }
 function updateMoreBar() {
@@ -2758,7 +2843,7 @@ function renderRateList() {
         : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
     // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"；四个按钮一行
     let actBtns = `
-      <div style="display:flex;justify-content:flex-end;gap:6px;white-space:nowrap">
+      <div class="rate-actions" style="display:flex;justify-content:flex-end;gap:6px;white-space:nowrap">
         <button class="btn btn-sm" data-id="${s.id}" data-act="view" style="flex:0 0 auto;white-space:nowrap;background:var(--primary-soft);color:var(--primary)">查看</button>
         <button class="btn btn-sm" data-id="${s.id}" data-act="adj" style="flex:0 0 auto;white-space:nowrap;background:var(--accent-soft);color:var(--accent)">调价</button>
         <button class="btn btn-sm" data-id="${s.id}" data-act="${isExpired?'restore':'expire'}" style="flex:0 0 auto;white-space:nowrap;${isExpired?'background:var(--green-soft);color:var(--green)':'background:var(--red-soft);color:var(--red)'}">${isExpired?'恢复':'过期'}</button>
@@ -2766,10 +2851,10 @@ function renderRateList() {
       </div>`;
     return `
     <tr style="${isExpired ? 'opacity:.55' : ''}">
-      <td><b>${esc(s.airline)}</b>${s.transit?`<span style="display:block;font-size:11px;color:var(--accent)">${esc(s.transit)}</span>`:''} ${adjTag}${isExpired?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
-      <td>${s.date}</td>
-      <td>${expLabel}</td>
-      <td>${actBtns}</td>
+      <td data-label="航司"><b>${esc(s.airline)}</b>${s.transit?`<span style="display:block;font-size:11px;color:var(--accent)">${esc(s.transit)}</span>`:''} ${adjTag}${isExpired?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
+      <td data-label="生效日">${s.date}</td>
+      <td data-label="到期日">${expLabel}</td>
+      <td data-label="操作">${actBtns}</td>
     </tr>`;
   }).join('');
   if (!tbody.__delegated) {
