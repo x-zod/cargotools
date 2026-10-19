@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0035)https://x-zod.github.io/cargotools/ -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>空运货代工具</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231456f0'/%3E%3Cpath d='M50 34 L34 32 L42 18 L38 16 L30 30 L18 28 L14 32 L28 38 L26 46 L30 48 L36 38 L48 40 Z' fill='white'/%3E%3C/svg%3E">
@@ -393,14 +393,14 @@
     }
   }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';document.head.appendChild(s);"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
 </head>
 <body>
 
 <!-- 顶部导航 -->
 <div class="topbar">
   <div class="brand">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path></svg>
     空运货代工具
   </div>
   <div class="tabs">
@@ -482,7 +482,7 @@
       <div class="field" style="margin:0">
         <select id="filterDays">
           <option value="7">近7天</option>
-          <option value="30" selected>近30天</option>
+          <option value="30" selected="">近30天</option>
           <option value="90">近90天</option>
           <option value="0">全部</option>
         </select>
@@ -511,7 +511,127 @@
           <th style="width:70px"></th>
         </tr>
       </thead>
-      <tbody id="listBody"></tbody>
+      <tbody id="listBody"><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>GYE</b></td>
+      <td data-label="件数/重量/体积">1 / 610 / 0.50</td>
+      <td data-label="比例">1:1220</td>
+      <td data-label="客户/备注">特派仕</td>
+      <td data-label="表价"><span class="adopted-price">¥55.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6g47u9bcdi">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>GEO</b></td>
+      <td data-label="件数/重量/体积">6 / 90 / 0.22</td>
+      <td data-label="比例">1:409</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="tag tag-gray">-</span></td>
+      <td data-label="外配"><span style="color:var(--accent)">¥62.00</span><br><span style="font-size:11px;color:var(--text-3)">BA</span></td>
+      <td data-label="卖价"><b style="color:var(--primary)">¥64.00</b></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6e2fvl5jmj">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>DFW</b></td>
+      <td data-label="件数/重量/体积">106 / 1690 / 11.27</td>
+      <td data-label="比例">1:150</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥40.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6bama8gom7">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>DFW</b></td>
+      <td data-label="件数/重量/体积">146 / 1316 / 9.52</td>
+      <td data-label="比例">1:138</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥40.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6bama7lkkg">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>DFW</b></td>
+      <td data-label="件数/重量/体积">146 / 1316 / 9.52</td>
+      <td data-label="比例">1:138</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥40.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6b6hjbuljf">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>DFW</b></td>
+      <td data-label="件数/重量/体积">106 / 1690 / 11.27</td>
+      <td data-label="比例">1:150</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥40.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6b6hjbk2hn">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-13</td>
+      <td data-label="目的港"><b>UIO</b></td>
+      <td data-label="件数/重量/体积">8 / 164 / 0.22</td>
+      <td data-label="比例">1:745</td>
+      <td data-label="客户/备注">纬狮</td>
+      <td data-label="表价"><span class="adopted-price">¥50.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv6a9ajtvoh0">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-12</td>
+      <td data-label="目的港"><b>GUA</b></td>
+      <td data-label="件数/重量/体积">104 / 814 / 4.78</td>
+      <td data-label="比例">1:170</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥56.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv4w4t20wp8g">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-12</td>
+      <td data-label="目的港"><b>GUA</b></td>
+      <td data-label="件数/重量/体积">104 / 814 / 4.78</td>
+      <td data-label="比例">1:170</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥56.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv4up7qnkqkf">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-12</td>
+      <td data-label="目的港"><b>GUA</b></td>
+      <td data-label="件数/重量/体积">104 / 814 / 4.78</td>
+      <td data-label="比例">1:170</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥54.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span style="color:var(--accent)">¥52.00</span><br><span style="font-size:11px;color:var(--text-3)">DL</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv4tgya87a6q">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-09</td>
+      <td data-label="目的港"><b>BWI</b></td>
+      <td data-label="件数/重量/体积">3 / 340 / 2.38</td>
+      <td data-label="比例">1:143</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥62.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span class="tag tag-gray">-</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv0r160t9zkj">详情</button></td>
+    </tr><tr>
+      <td data-label="日期">10-09</td>
+      <td data-label="目的港"><b>GRU</b></td>
+      <td data-label="件数/重量/体积">2 / 713 / 1.32</td>
+      <td data-label="比例">1:540</td>
+      <td data-label="客户/备注"></td>
+      <td data-label="表价"><span class="adopted-price">¥55.00</span><div style="font-size:11px;color:var(--text-3)">AA</div></td>
+      <td data-label="外配"><span style="color:var(--accent)">¥54.00</span><br><span style="font-size:11px;color:var(--text-3)">UA</span></td>
+      <td data-label="卖价"><span class="tag tag-gray">-</span></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="imv0pwqn80np7">详情</button></td>
+    </tr></tbody>
     </table>
     <div class="empty" id="listEmpty" style="display:none">没有匹配的询价记录</div>
     <div id="listMore" style="display:none;text-align:center;padding:12px;font-size:13px;color:var(--text-2)"></div>
@@ -607,7 +727,7 @@
   <div class="card">
     <div class="card-title">基础参数</div>
     <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:40%"><col style="width:15%"><col style="width:15%"></colgroup>
-      <tr>
+      <tbody><tr>
         <td>总体积 (m³)</td>
         <td><input id="ccVolume" type="number" step="0.0001" inputmode="decimal" placeholder="直接输入总体积">
           <div id="ccDimContainer"></div>
@@ -631,13 +751,13 @@
         <td>成本计费重</td>
         <td class="result" id="ccCostW">-</td>
       </tr>
-    </table>
+    </tbody></table>
   </div>
 
   <div class="card">
     <div class="card-title">运输类型</div>
     <div class="option-group">
-      <label><input type="radio" name="ccBilling" value="0.006" checked><span>大陆 (1:167)</span></label>
+      <label><input type="radio" name="ccBilling" value="0.006" checked=""><span>大陆 (1:167)</span></label>
       <label><input type="radio" name="ccBilling" value="0.007"><span>香港 (1:143)</span></label>
       <label><input type="radio" name="ccBilling" value="0.005"><span>快件 (1:200)</span></label>
       <label><input type="radio" name="ccBilling" value="0.001"><span>海运 (1:1000)</span></label>
@@ -647,7 +767,7 @@
   <div class="card">
     <div class="card-title">分泡比例</div>
     <div class="option-group" id="ccBubbleGroup">
-      <label><input type="radio" name="ccBubble" value="0" checked><span>不分泡</span></label>
+      <label><input type="radio" name="ccBubble" value="0" checked=""><span>不分泡</span></label>
       <label><input type="radio" name="ccBubble" value="0.5"><span>55分</span></label>
       <label><input type="radio" name="ccBubble" value="0.4"><span>46分</span></label>
       <label><input type="radio" name="ccBubble" value="0.3"><span>37分</span></label>
@@ -658,7 +778,7 @@
   <div class="card">
     <div class="card-title">成本与售价</div>
     <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
-      <tr>
+      <tbody><tr>
         <td>成本单价 RMB/KG</td>
         <td><input id="ccRmb" type="number" step="0.01" inputmode="decimal" placeholder="输入成本"></td>
         <td>分泡后 RMB/KG</td>
@@ -676,15 +796,15 @@
         <td>对应成本 RMB/KG</td>
         <td class="result" id="ccTargetRmb">-</td>
       </tr>
-    </table>
+    </tbody></table>
   </div>
 
   <div class="card">
     <div class="card-title">总成本</div>
     <table class="cc-table" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:70%"></colgroup>
-      <tr><td>总成本 RMB</td><td class="result" id="ccTotalRmb">-</td></tr>
+      <tbody><tr><td>总成本 RMB</td><td class="result" id="ccTotalRmb">-</td></tr>
       <tr><td>总成本 USD</td><td class="result" id="ccTotalUsd">-</td></tr>
-    </table>
+    </tbody></table>
   </div>
 </div>
 
@@ -701,7 +821,7 @@
       <button class="btn btn-primary btn-sm" id="btnSaveSync" style="padding:5px 12px">登录</button>
       <button class="btn btn-ghost btn-sm" id="btnCloudSync" style="padding:5px 12px">Cloudflare同步</button>
     </div>
-    <div id="syncStatus" style="margin-top:6px;font-size:12px;color:var(--text-3)"></div>
+    <div id="syncStatus" style="margin-top:6px;font-size:12px;color:var(--text-3)">已登录：<b>zod</b></div>
   </div>
   <div class="card">
     <div class="card-title">本地数据管理</div>
@@ -755,8 +875,17 @@
       <button class="btn btn-accent btn-sm" id="btnAddAdj">添加优惠</button>
     </div>
     <div class="card-title" style="margin:18px 0 8px">当前生效优惠</div>
-    <div id="adjListBody"></div>
-    <div class="empty" id="adjListEmpty" style="padding:14px">当前没有生效优惠</div>
+    <div id="adjListBody">
+    <div class="similar-item">
+      <div class="similar-left">
+        <b>AA</b>
+        <span style="margin-left:8px">-3 元/kg</span>
+        <div class="similar-meta">生效 2026-10-13（长期）</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-id="imv61ytzzstec" style="color:var(--red)">删</button>
+    </div>
+  </div>
+    <div class="empty" id="adjListEmpty" style="padding: 14px; display: none;">当前没有生效优惠</div>
   </div>
 </div>
 
@@ -1488,8 +1617,12 @@ function lookupRateFor(dest, weight, volume) {
   });
   // AA128 联动：目的港在 AA128_ZONE 且无直飞价时，用 AA128 表（直飞DFW）DFW 基准散价 + 区域加价
   // 美国全境+2 / 墨西哥·加拿大+7（MEX GDL MTY CUN；CUN仅散货）；DFW 本身不加
-  if (!best && AA128_ZONE[qdn]) {
-    const aa128 = sheets.find(s => (s.airline||'').toUpperCase()==='AA' && (s.transit||'')==='直飞DFW' && !isExp(s));
+  if (!best && qdn !== 'DFW' && AA128_ZONE[qdn]) {
+    // 兼容两种存储格式：家版 airline='AA'+transit='直飞DFW'；公司版 airline 含'AA128'
+    const aa128 = sheets.find(s => {
+      const al = (s.airline||'').toUpperCase();
+      return !isExp(s) && ((al==='AA' && (s.transit||'')==='直飞DFW') || /AA128/.test(al));
+    });
     if (aa128) {
       const dfwRow = aa128.rows.find(r => normalizeDest(r.dest)==='DFW');
       if (dfwRow) {
@@ -1499,6 +1632,25 @@ function lookupRateFor(dest, weight, volume) {
           const fee = AA128_ZONE[qdn]==='US' ? 2 : 7;
           const adj = (wk==='w45') ? 0 : currentAdjFor('AA');
           best = { airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, aa128:true };
+        }
+      }
+    }
+  }
+  // JL 卡转联动：目的港在 JL_CANADA_POOL 且非YVR时，用 JL-YVR 表价 + 卡转费
+  if (!best && qdn !== 'YVR' && JL_CANADA_POOL[qdn] !== undefined) {
+    const jl = sheets.find(s => {
+      const al = (s.airline||'').toUpperCase();
+      return !isExp(s) && al==='JL' && s.rows.some(r => normalizeDest(r.dest)==='YVR');
+    });
+    if (jl) {
+      const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
+      if (yvrRow) {
+        const jDk = (jl.densityDef && jl.densityDef.length) ? (matchDensityDef(jl.densityDef, ratio) || dk) : dk;
+        const p = priceFromRow(yvrRow, wk, jDk);
+        if (p.base !== undefined) {
+          const fee = JL_CANADA_POOL[qdn];
+          const adj = (wk==='w45') ? 0 : currentAdjFor('JL');
+          best = { airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, jlCanada:true };
         }
       }
     }
@@ -1612,6 +1764,9 @@ function updateRateMatch() {
       const effDk = (s.densityDef && s.densityDef.length)
         ? (matchDensityDef(s.densityDef, densityRatio) || dk)
         : dk;
+      // 该目的港在本 LH 表已有直航有效价时，不再走 hub 转运（避免直航与转运重复出价，如 VIE 表内已有价）
+      const directRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), qd));
+      if (directRows.some(r => priceFromRow(r, wk, effDk).base !== undefined)) return;
       // 遍历 hub 所有行（标准行+各比重行），取最低匹配价
       let best = null;
       hubRows.forEach(hubRow => {
@@ -1632,8 +1787,13 @@ function updateRateMatch() {
   }
 
   // AA128 联动：目的港在 AA128_ZONE 时附加联动条目（用 AA128 表 DFW 基准散价 + 区域加价），供参考展示
-  if (AA128_ZONE[qd]) {
-    const aa128 = sheets.find(s => (s.airline||'').toUpperCase()==='AA' && (s.transit||'')==='直飞DFW' && !isSheetExpired(s));
+  // DFW 是 hub 本身（直飞DFW表已有 DFW 行），不再出"转"条目，避免重复
+  if (AA128_ZONE[qd] && qd !== 'DFW') {
+    // 兼容两种存储格式：家版 airline='AA'+transit='直飞DFW'；公司版 airline 含'AA128'
+    const aa128 = sheets.find(s => {
+      const al = (s.airline||'').toUpperCase();
+      return !isSheetExpired(s) && ((al==='AA' && (s.transit||'')==='直飞DFW') || /AA128/.test(al));
+    });
     if (aa128) {
       const dfwRow = aa128.rows.find(r => normalizeDest(r.dest)==='DFW');
       if (dfwRow) {
@@ -1643,6 +1803,26 @@ function updateRateMatch() {
           const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
           const adj = (wk==='w45') ? 0 : currentAdjFor('AA');
           matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:null });
+        }
+      }
+    }
+  }
+
+  // JL 卡转联动：目的港在 JL_CANADA_POOL 且非YVR时附加联动条目（用 JL-YVR 表价 + 卡转费）
+  if (JL_CANADA_POOL[qd] !== undefined && qd !== 'YVR') {
+    const jl = sheets.find(s => {
+      const al = (s.airline||'').toUpperCase();
+      return !isSheetExpired(s) && al==='JL' && s.rows.some(r => normalizeDest(r.dest)==='YVR');
+    });
+    if (jl) {
+      const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
+      if (yvrRow) {
+        const jDk = (jl.densityDef && jl.densityDef.length) ? (matchDensityDef(jl.densityDef, densityRatio) || dk) : dk;
+        const p = priceFromRow(yvrRow, wk, jDk);
+        if (p.base !== undefined) {
+          const fee = JL_CANADA_POOL[qd];
+          const adj = (wk==='w45') ? 0 : currentAdjFor('JL');
+          matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:`JL-YVR卡转+${fee}`, jlCanada:true, service:null });
         }
       }
     }
@@ -2178,7 +2358,7 @@ function renderStats() {
 // 其中 GRU/SCL/MVD/ASU 存在有效价格（靠 AA 表价匹配到即出价）；EZE/LPB/VVI 当前无有效价格（保持静默）
 const AA_DEST_POOL = {
   // 美国全境
-  'ABQ':1,'ATL':1,'AUS':1,'BDL':1,'BNA':1,'BOS':1,'BWI':1,'CLE':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'DTW':1,'ELP':1,'EWR':1,'IAD':1,'IAH':1,'IND':1,'JFK':1,'LAS':1,'LAX':1,'LRD':1,'MCI':1,'MEM':1,'MFE':1,'MIA':1,'MKE':1,'MSY':1,'OMA':1,'ORD':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'SAN':1,'SDF':1,'SEA':1,'SFO':1,'SLC':1,'STL':1,'TUL':1,'TPA':1,
+  'ABQ':1,'ATL':1,'AUS':1,'BDL':1,'BNA':1,'BOS':1,'BWI':1,'CLE':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'DTW':1,'ELP':1,'EWR':1,'IAD':1,'IAH':1,'IND':1,'JFK':1,'LAS':1,'LAX':1,'LRD':1,'MCI':1,'MCO':1,'MEM':1,'MFE':1,'MIA':1,'MKE':1,'MSY':1,'OMA':1,'ORD':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'SAN':1,'SDF':1,'SEA':1,'SFO':1,'SLC':1,'STL':1,'TUL':1,'TPA':1,
   // 加拿大 / 墨西哥
   'YUL':1,'YYZ':1,'MEX':1,'GDL':1,'MTY':1,'CUN':1,
   // 南美（有效港，静默：GRU/SCL/MVD/ASU 有有效价格；EZE/LPB/VVI 当前无价；均不参与 AA128 联动，靠 AA 表价匹配）
@@ -2194,11 +2374,17 @@ const DL_DEST_POOL = {
   // DL 主中转：ATL/DTW/JFK/LAX/MSP/SLC/SEA
   'ATL':1,'DTW':1,'JFK':1,'LAX':1,'MSP':1,'SLC':1,'SEA':1,
   // 美国卡转点（去重汇总）
-  'ABQ':1,'AUS':1,'BHM':1,'BNA':1,'BOS':1,'BWI':1,'CHS':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'ELP':1,'EWR':1,'GSO':1,'GSP':1,'IAD':1,'IAH':1,'IND':1,'JAX':1,'MCI':1,'MCO':1,'MEM':1,'MIA':1,'MKE':1,'MSY':1,'OKC':1,'ORD':1,'ORF':1,'PDX':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'RIC':1,'SAN':1,'SAT':1,'SDF':1,'SFO':1,'STL':1,'TPA':1,'LAS':1,'CLE':1,'BWI':1,'YVR':1,
+  'ABQ':1,'AUS':1,'BHM':1,'BNA':1,'BOS':1,'BWI':1,'CHS':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'ELP':1,'EWR':1,'GSO':1,'GSP':1,'IAD':1,'IAH':1,'IND':1,'JAX':1,'MCI':1,'MCO':1,'MEM':1,'MIA':1,'MKE':1,'MSY':1,'OKC':1,'ORD':1,'ORF':1,'PDX':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'RIC':1,'SAN':1,'SAT':1,'SDF':1,'SFO':1,'STL':1,'TPA':1,'LAS':1,'CLE':1,'YVR':1,
   // 加拿大
   'YUL':1,'YYZ':1,
   // 中/南美
   'BOG':1,'EZE':1,'GIG':1,'GRU':1,'GUA':1,'LIM':1,'NAS':1,'PTY':1,'SAL':1,'SAP':1,'SCL':1,'SDQ':1,'SJO':1,'SJU':1,'UIO':1,'CUN':1,'MEX':1,'PUJ':1,'STI':1
+};
+
+// JL 经YVR 加拿大目的港池：YVR直飞；YYT/YUL/YHZ/YYC/YYZ/YEG/YWG/YHM 卡转+1
+const JL_CANADA_POOL = {
+  'YVR': 0,  // 直飞
+  'YYT': 1, 'YUL': 1, 'YHZ': 1, 'YYC': 1, 'YYZ': 1, 'YEG': 1, 'YWG': 1, 'YHM': 1
 };
 
 // ---------- 航司表价：存储 ----------
@@ -3110,7 +3296,8 @@ $('btnQuickSearch').addEventListener('click', () => {
 // 服务段动态识别（1-2天 / 3-4天 / 1-3天 / 5-7天 等）；主价 = 最后一段（慢服务）；variants = 各服务段 散货/托盘
 // 无 "X-Y天" 段标签时按单段解析；目的港排除出发港（PVG 等）取价格块前的三字码
 function parseUnifiedRateText(text) {
-  text = String(text || '').replace(/\s+/g, ' ');
+  const rawText = String(text || '');
+  text = rawText.replace(/\s+/g, ' ');
   // 目的港：取价格块（托盘/散货）之前、排除出发港后的最后一个三字码
   const priceIdx = text.search(/托盘|散货/);
   const head = priceIdx >= 0 ? text.slice(0, priceIdx) : text;
@@ -3177,7 +3364,7 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== AA 分组报价格式（经HNL）：美国本土点/墨西哥/南美 分组 + 目的港散价++ + 标托+4 + 重货 =====
-  if (/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text) && !/裸运费|平散\s*\d+\s*裸|\+45级/.test(text)) {
+  if (/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text) && !/裸运费|平散\s*\d+\s*裸|\+45级|平散货|平托\s+\d|1[:：]\d+\s+\d|《1比/.test(text)) {
     const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
     const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : date;
     const ports = {};
@@ -3224,6 +3411,127 @@ function parseUnifiedRateText(text) {
         return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark };
       });
       return { dest: destList.join('/'), date: dateH, ok: true, rows };
+    }
+  }
+
+  // ===== OCR目的港+价格格式（AA interline等）：GRU 67 EZE 65 UIO 61 =====
+  if (/\b[A-Z]{3}\s+\d+(?:\.\d+)?\b/.test(text) && !/裸运费|美国本土点|平散|托盘|散货|重托|重散|泡托|泡散|1:\d+\s*\/\s*\d+/.test(text)) {
+    const wAll = ['w45','w100','w300','w500','w1000'];
+    const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
+    const portRe = /\b([A-Z]{3})\s+(\d+(?:\.\d+)?)/g;
+    const rows = [], seen = {};
+    let pm;
+    while ((pm = portRe.exec(text))) {
+      if (seen[pm[1]]) continue; seen[pm[1]] = true;
+      const price = +pm[2];
+      rows.push({ dest: pm[1], densityDef: buildDensityDef([{key:'flat',flat:true}]), densityPrices: {flat: toDP(price)}, service: '散货', remark: '' });
+    }
+    if (rows.length >= 2) return { dest: rows.map(r=>r.dest).join('/'), date, ok: true, rows };
+  }
+
+  // ===== OCR比重档×重量档格式（LH等）：32 32 32 33 <1:80 / 平散货 35 35 35 36 =====
+  if (/(平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:)/.test(text) && /\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text)) {
+    const wAll = ['w45','w100','w300','w500','w1000'];
+    const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
+    // 清理OCR错误的比重标签（只做字符替换，不删内容）
+    const cleanLabel = (s) => s.replace(/《/g,'<').replace(/比/g,':').replace(/／/g,'/').replace(/：/g,':');
+    // 解析标签为比重档
+    const parseLabel = (label) => {
+      label = cleanLabel(label);
+      if (/平散货|平托/.test(label)) return { key:'flat', flat:true };
+      // 泡货档 <1:XXX（匹配2-3位数字，1205/5 → 120）
+      let m = label.match(/<\s*1?[:：比]?(\d{2,3})/);
+      if (m) return { key:'<1:'+m[1], max:+m[1] };
+      // 重货档 ≥1:XXX 或 1:XXX
+      m = label.match(/[≥>]?\s*1?[:：比]?(\d{2,4})/);
+      if (m && +m[1] >= 100) return { key:'1:'+m[1]+'+', min:+m[1] };
+      return null;
+    };
+    const lines = rawText.split(/\n/).map(l => l.trim()).filter(l => l);
+    const densityRows = [];
+    lines.forEach(line => {
+      // 跳过纯表头/备注行（KG只匹配表头的100KG/300KG等）
+      if (/DEST|100KG|300KG|500KG|1000KG|REMARK|有效期|航班|ETD|ETA|MUST GO|不分泡|生效日期|备注|二程|仅限|可议价|单议|转统配|PVG-|上海LH|航司|天天|D\d{4}|^\d{4}$/.test(line)) return;
+      const cells = line.split(/\s+/);
+      // 找比重标签位置
+      let labelIdx = -1;
+      for (let i=0;i<cells.length;i++) {
+        if (/平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:/.test(cells[i])) { labelIdx = i; break; }
+      }
+      if (labelIdx < 0) return;
+      const labelInfo = parseLabel(cells[labelIdx]);
+      if (!labelInfo) return;
+      // 价格：标签前面或后面的连续数字
+      let prices = [];
+      for (let i=0;i<labelIdx;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
+      if (prices.length < 2) {
+        prices = [];
+        for (let i=labelIdx+1;i<cells.length;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
+      }
+      if (prices.length < 2) return;
+      // 4个价格对应 w100/w300/w500/w1000
+      const dp = {};
+      const wMap = ['w100','w300','w500','w1000'];
+      prices.forEach((p, i) => { if (wMap[i]) dp[wMap[i]] = p; });
+      dp.w45 = dp.w100;
+      densityRows.push({ ...labelInfo, dp });
+    });
+    if (densityRows.length >= 2) {
+      const densityDef = buildDensityDef(densityRows.map(d => d.flat ? {key:'flat',flat:true} : (d.max ? {key:d.key,max:d.max} : {key:d.key,min:d.min})));
+      const densityPrices = {};
+      densityRows.forEach(d => { densityPrices[d.key] = d.dp; });
+      // 目的港：提取3字母代码，支持 MUCIFRA → MUC/FRA
+      const DEPOT2 = ['PVG','SHA','HKG','PEK','CAN','SZX','TSN','CGO','TIT','REM','ETA','ETD','DEST','DES','EST','KG','上海','REMARK','ARK'];
+      // 先处理粘连的 MUCIFRA → MUC FRA（全局匹配所有6-7字母组合）
+      let destCodes = [];
+      const stickyMatches = rawText.match(/[A-Z]{6,7}/g) || [];
+      stickyMatches.forEach(s => {
+        if (s.length === 6) {
+          const c1 = s.slice(0,3), c2 = s.slice(3,6);
+          if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) {
+            destCodes.push(c1, c2);
+          }
+        } else if (s.length === 7) {
+          // MUCIFRA → MUC + FRA（中间I是分隔符误识别）
+          const c1 = s.slice(0,3), c2 = s.slice(4,7);
+          if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) {
+            destCodes.push(c1, c2);
+          }
+        }
+      });
+      // 再匹配独立的3字母代码（用单词边界）
+      const standalone = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !DEPOT2.includes(c) && !destCodes.includes(c));
+      const allCodes2 = [...destCodes, ...standalone];
+      const destList = allCodes2.length ? allCodes2.slice(0, 3) : ['未知']; // 最多3个目的港
+      const rows = destList.map(d => ({ dest: d, densityDef, densityPrices, service: '散货', remark: '' }));
+      return { dest: destList.join('/'), date, ok: true, rows };
+    }
+  }
+
+  // ===== 散货/托盘并列格式（JL-YVR等）：散42 托盘44 卡车+1 =====
+  if (/散\s*\d+(?:\.\d+)?/.test(text) && /托盘\s*\d+(?:\.\d+)?/.test(text) && !/美国本土点|裸运费|平散货/.test(text)) {
+    const wAll = ['w45','w100','w300','w500','w1000'];
+    // 提取散货价（取第一个）
+    const looseM = text.match(/散\s*(\d+(?:\.\d+)?)/);
+    const palM = text.match(/托盘\s*(\d+(?:\.\d+)?)/);
+    if (looseM && palM) {
+      const looseV = +looseM[1], palV = +palM[1];
+      const dp = {};
+      wAll.forEach(w => dp[w] = looseV);
+      const densityDef = buildDensityDef([{key:'flat',flat:true}]);
+      const densityPrices = { flat: dp };
+      const palDiff = palV - looseV;
+      // 目的港：从标题提取（JL-YVR → YVR）
+      let dest = '未知';
+      const titleM = rawText.match(/[A-Z]{2}\s*[-–—]\s*([A-Z]{3})/);
+      if (titleM) dest = titleM[1];
+      else {
+        const codes = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !['PVG','SHA','HKG','ETD','ETA'].includes(c));
+        if (codes.length) dest = codes[0];
+      }
+      const remark = palDiff > 0 ? `托盘+${palDiff}` : '';
+      const row = { dest, densityDef, densityPrices, service: '散货', remark };
+      return { dest, date, ok: true, rows: [row] };
     }
   }
 
@@ -3729,5 +4037,6 @@ renderList();
 renderAdjList();
 updateAdjBanner();
 </script>
-</body>
-</html>
+
+
+</body></html>
