@@ -394,6 +394,11 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+<script>
+if (typeof ExcelJS === 'undefined') {
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"><\/script>');
+}
+</script>
 </head>
 <body>
 
@@ -715,7 +720,8 @@
     <div style="padding:0 16px 16px">
       <textarea id="pastedRate" rows="4" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:13px" placeholder="粘贴航司发的文字表价..."></textarea>
       <div class="btn-row">
-        <button class="btn btn-ghost btn-sm" id="btnParsePasted">识别</button>
+        <button class="btn btn-ghost btn-sm" id="btnParsePasted">识别统配表价</button>
+        <button class="btn btn-ghost btn-sm" id="btnUCTextUpdate" style="background:var(--accent-soft);color:var(--accent)">UC手写版更新</button>
       </div>
       <div id="pastedPreview" style="margin-top:10px"></div>
     </div>
@@ -865,8 +871,13 @@
         <input id="adjAirline" placeholder="航司代码，如 AA">
       </div>
       <div class="field" style="margin:0">
+        <input id="adjTransit" placeholder="中转点（如 经HND，留空=全航司）">
+      </div>
+      <div class="field" style="margin:0">
         <input id="adjDelta" type="number" step="0.5" placeholder="加减金额，如 -5 / +3">
       </div>
+    </div>
+    <div class="row row-3" style="margin-top:8px">
       <div class="field" style="margin:0">
         <input id="adjExpiry" type="date" placeholder="到期日">
       </div>
@@ -996,7 +1007,8 @@ const NOISE_DEST = new Set([
   'BKK','JED','RUH','CGO','TFU','WUH','NGB','TAO','DLC','TSN','CKG','KMG','HGH',
   'FOC','CSX','HRB','SHE','URC','LXA','JNB','DKR','LOS','CAI','ADD','RUN','MBA',
   'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE',
-  'AOD','POR','DES','REF','QTY','LCL','FCL'
+  'AOD','POR','DES','REF','QTY','LCL','FCL',
+  'CMS','CM','MM','MTR','INCH','FEET','LBS','KG','WT','DIMENSION','SIZE'
 ]);
 
 // 智能预处理：处理欧洲小数点逗号和千分位
@@ -1582,8 +1594,10 @@ function lookupRateFor(dest, weight, volume) {
   const tr = getLHTransferFee(qdn);   // 转运费只查一次（与表数量无关）
   sheets.forEach(s => {
     if (!s.rows || isExp(s)) return;
-    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
-    const effDk = (s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk;
+    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
+    // UC表价规则：毛重<300kg不享受比重价，只用w100
+    const isUCSheet = s.rows && s.rows.some(r => r.ucMeta);
+    const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk);
     let directHit = false; // 该表内此目的港是否命中直航价（有直航则不再走 LH 联程转运）
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
@@ -1630,7 +1644,7 @@ function lookupRateFor(dest, weight, volume) {
         const p = priceFromRow(dfwRow, wk, aDk);
         if (p.base !== undefined) {
           const fee = AA128_ZONE[qdn]==='US' ? 2 : 7;
-          const adj = (wk==='w45') ? 0 : currentAdjFor('AA');
+          const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
           best = { airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, aa128:true };
         }
       }
@@ -1649,7 +1663,7 @@ function lookupRateFor(dest, weight, volume) {
         const p = priceFromRow(yvrRow, wk, jDk);
         if (p.base !== undefined) {
           const fee = JL_CANADA_POOL[qdn];
-          const adj = (wk==='w45') ? 0 : currentAdjFor('JL');
+          const adj = (wk==='w45') ? 0 : currentAdjFor('JL', jl.transit);
           best = { airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, jlCanada:true };
         }
       }
@@ -1694,16 +1708,21 @@ function updateRateMatch() {
 
   const sheets = loadRates();
   const isSheetExpired = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
+  // UC规则：存在UC手写版更新表价时，UC基准表价不参与匹配
+  const hasUCUpdated = sheets.some(s => s.ucUpdated && !isSheetExpired(s));
   const matches = [];
   const missing = [];
   sheets.forEach(s => {
     if (!s.rows) return;
     if (isSheetExpired(s)) return;   // 已过期/已到期：不参与匹配
-    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
-    // 该表若有自定义比重阶梯，用表自己的档位；否则用全局 matchDensityKey
-    const effDk = (s.densityDef && s.densityDef.length)
+    // UC基准表价在有手写版更新时不参与匹配
+    if (s.ucBase && hasUCUpdated) return;
+    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
+    // UC表价规则：毛重<300kg不享受比重价，只用w100
+    const isUCSheet = s.rows && s.rows.some(r => r.ucMeta);
+    const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length)
       ? (matchDensityDef(s.densityDef, densityRatio) || dk)
-      : dk;
+      : dk);
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
       const hit = destMatches(rd, qd);
@@ -1732,11 +1751,20 @@ function updateRateMatch() {
             if (vp !== undefined) vRefs[lb] = vp + adj;
           });
         }
+        // 从remark中提取UC路径和特殊备注
+        const fullRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
+        let routing = '';
+        let ucNote = '';
+        const rm = fullRemark.match(/路径:([^|]+)/);
+        if (rm) routing = rm[1].trim();
+        if (/SCL空转单件限重80kg/.test(fullRemark)) ucNote = 'SCL空转单件限重80kg';
+        const gwTypeMatch = fullRemark.match(/[|]\s*(空转|卡转)\s*[|]/);
+        const gwType = gwTypeMatch ? gwTypeMatch[1] : '';
         matches.push({
           airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: effectiveWk,
           base, final, adj, matchedDest: (r.dest||'').trim(),
-          density: densityUsed, remark: (r.remark || s.remark || ''), variants: vRefs, service: r.service || null,
-          pp: !!r.pp, bare: !!r.bare, srcLabel
+          density: densityUsed, remark: fullRemark, variants: vRefs, service: r.service || null,
+          pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType
         });
       } else {
         const availW = r.prices ? Object.keys(r.prices) : [];
@@ -1760,7 +1788,7 @@ function updateRateMatch() {
       if (s.airline !== LH_TRANSFER_FEES.airline || !s.rows || isSheetExpired(s)) return;
       const hubRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), trInfo.hub));
       if (!hubRows.length) return;
-      const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline);
+      const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
       const effDk = (s.densityDef && s.densityDef.length)
         ? (matchDensityDef(s.densityDef, densityRatio) || dk)
         : dk;
@@ -1801,7 +1829,7 @@ function updateRateMatch() {
         const p = priceFromRow(dfwRow, wk, aDk);
         if (p.base !== undefined) {
           const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
-          const adj = (wk==='w45') ? 0 : currentAdjFor('AA');
+          const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
           matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:null });
         }
       }
@@ -1821,7 +1849,7 @@ function updateRateMatch() {
         const p = priceFromRow(yvrRow, wk, jDk);
         if (p.base !== undefined) {
           const fee = JL_CANADA_POOL[qd];
-          const adj = (wk==='w45') ? 0 : currentAdjFor('JL');
+          const adj = (wk==='w45') ? 0 : currentAdjFor('JL', jl.transit);
           matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:`JL-YVR卡转+${fee}`, jlCanada:true, service:null });
         }
       }
@@ -1866,32 +1894,51 @@ function updateRateMatch() {
     box.innerHTML = dbg;
     return;
   }
-  let html = matches.sort((a,b) => a.final - b.final).map(m => {
+  // 去重：同一航司+中转点+目的港只保留最新生效日期的表价
+  const seen = {};
+  const deduped = [];
+  matches.sort((a,b) => a.final - b.final);
+  matches.forEach(m => {
+    const key = m.airline + '|' + m.transit + '|' + m.matchedDest;
+    if (!seen[key] || (m.sheetDate || '') > (seen[key].sheetDate || '')) {
+      seen[key] = m;
+    }
+  });
+  const finalMatches = Object.values(seen).sort((a,b) => a.final - b.final);
+  // 更新最低价
+  if (finalMatches.length) {
+    const best = finalMatches[0];
+    window.__currentRatePrice = best.final;
+    window.__currentRateAirline = best.airline;
+    window.__currentRateTransit = best.transit || null;
+    window.__currentRateDensity = best.density || null;
+  }
+  $('rateMatchCount').textContent = finalMatches.length + ' 条';
+  let html = finalMatches.map(m => {
     const chl = channelLabel(m.airline, m.transit);
     const denLbl = m.density ? DENSITY_LABEL[m.density] : null;
-    // 只显示匹配档位信息：不显示 service 段（散货/托盘/服务等级）与 variants 多行（多余）；
-    // 备注只保留有价值说明（托盘/比重优惠），过滤"主价="、多港并列 等描述性内容
-    const showRm = m.remark && !/多港并列共用比重阶梯|主价=/.test(m.remark);
-    // 匹配价对应服务段的散货+托盘参考价：来源段优先用④补位段，否则用主价段（service 含服务段时）
-    let srcNote = '';
-    let seg = null;
-    if (m.srcLabel) seg = m.srcLabel.replace(/散货$/, '');
-    else if (m.service && /天|统配/.test(m.service)) seg = m.service.replace(/散货$/, '');
-    if (seg && m.variants) {
-      const bV = m.srcLabel ? m.variants[seg + '散货'] : m.final;
-      const tV = m.variants[seg + '托盘'];
-      let s = '';
-      if (bV !== undefined) s += `${seg}散货 ¥${fmtNum(bV, 2)}`;
-      if (tV !== undefined) s += (s ? '　' : '') + `${seg}托盘 ¥${fmtNum(tV, 2)}`;
-      srcNote = s;
+    const isUC = /^UC/i.test(m.airline || '');
+    // UC表价不显示100KG档（默认档），只显示比重档
+    let weightPart = '';
+    if (isUC) {
+      if (denLbl) weightPart = ` · ${denLbl}`;
+    } else {
+      weightPart = ` · ${WEIGHT_LABEL[m.weightKey]}档${denLbl ? ` · ${denLbl}` : ''}`;
     }
-    // 价格=生效后表价（含调价 adj 与联动/转运加价 fee）；备注里的档位说明（托盘+2、1:800-4 等）仅展示，由用户自行应用
+    // 第一行标题：航司中转 · 目的港 · 比重档 · 路径 | 空转/卡转 | 限重备注
+    let titleLine = `<b>${chl || m.airline}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${m.transit}</span>` : ''} · ${m.matchedDest}${weightPart}`;
+    if (m.routing) titleLine += ` · ${m.routing}`;
+    const extras = [];
+    if (m.gwType) extras.push(m.gwType);
+    if (m.ucNote) extras.push(m.ucNote);
+    if (extras.length) titleLine += ` | ${extras.join(' | ')}`;
+    // 第二行：表价生效日期（UC表价不显示冗长remark）
+    const metaLine = isUC ? `表价生效 ${m.sheetDate}` : `表价生效 ${m.sheetDate}${m.remark ? (' · '+m.remark) : ''}`;
     return `
-    <div class="similar-item" style="${m.final === matches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
+    <div class="similar-item" style="${m.final === finalMatches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
       <div class="similar-left">
-        <div><b>${chl || m.airline}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${m.transit}</span>` : ''} · ${m.matchedDest} · ${WEIGHT_LABEL[m.weightKey]}档${denLbl ? ` · ${denLbl}` : ''}</div>
-        <div class="similar-meta">表价生效 ${m.sheetDate}${showRm ? (' · '+m.remark) : ''}</div>
-        ${srcNote ? `<div class="similar-meta">${srcNote}</div>` : ''}
+        <div>${titleLine}</div>
+        <div class="similar-meta">${metaLine}</div>
       </div>
       <div class="similar-price">
         ¥${fmtPrice(m.final, m.pp, m.bare)}<small>/kg</small>
@@ -2499,6 +2546,8 @@ function matchDensityKey(ratio) {
 }
 const DENSITY_LABEL = { '200+':'1:200+','300+':'1:300+','500+':'1:500+','800+':'1:800+','150-':'1:150-','140-':'1:140-','130-':'1:130-','120-':'1:120-','100-':'1:100-','std':'标准(150-200)',
   '1000+':'1:1000+','400+':'1:400+','250+':'1:250+','flat':'平散货','平散货':'平散货',
+  // UC表价比重档
+  'd200':'1:200','d300':'1:300','d400':'1:400','d500':'1:500','d700':'1:700','d800':'1:800','d1000':'1:1000',
   '<1:80':'泡1:80-','<1:100':'泡1:100-','<1:120':'泡1:120-','<1:140':'泡1:140-','<1:150':'泡1:150-','<1:200':'泡1:200-','<1:250':'泡1:250-','<1:300':'泡1:300-',
   '1:100+':'重1:100+','1:120+':'重1:120+','1:140+':'重1:140+','1:150+':'重1:150+','1:200+':'重1:200+','1:250+':'重1:250+','1:300+':'重1:300+','1:400+':'重1:400+','1:500+':'重1:500+','1:800+':'重1:800+','1:1000+':'重1:1000+',
   '1:150-':'泡1:150-','1:140-':'泡1:140-','1:130-':'泡1:130-','1:120-':'泡1:120-','1:100-':'泡1:100-','1:500-':'泡1:500-','1:1000-':'泡1:1000-' };
@@ -2571,6 +2620,8 @@ function transitNameForSheet(name) {
   if (/上海/.test(n) && (/\bAA\b/.test(n) || /\bDL\b/.test(n))) return '经HND';
   // LH 等航司的表价 sheet 无中转点概念，返回空中转点（询价页仅显示航司名）
   if (/\bLH\b/.test(n)) return '';
+  // UC(LATAM)表价每行有独立Gateway（行级TRANSIT列），sheet级返回空
+  if (/\bUC\b/.test(n) || /LATAM/i.test(n)) return '';
   return (name || '').trim() || '';
 }
 
@@ -2619,6 +2670,529 @@ function mergeHNDRows(rows) {
   return out;
 }
 
+// 判断是否是UC(LATAM)原生表价格式
+function isUCRateSheet(worksheet) {
+  for (let R = 1; R <= Math.min(worksheet.rowCount, 20); R++) {
+    const row = worksheet.getRow(R);
+    for (let C = 1; C <= worksheet.columnCount; C++) {
+      const v = String(row.getCell(C).value || '').toUpperCase();
+      if (v.includes('UC SPOT') || (v.includes('GATEWAY') && v.includes('DEST'))) return true;
+    }
+  }
+  return false;
+}
+
+// 解析UC(LATAM)原生表价
+function parseUCRateSheet(worksheet) {
+  const grid = [];
+  for (let R = 1; R <= worksheet.rowCount; R++) {
+    const row = worksheet.getRow(R);
+    const rowData = [];
+    for (let C = 1; C <= worksheet.columnCount; C++) {
+      rowData.push(String(row.getCell(C).value || '').trim());
+    }
+    grid.push(rowData);
+  }
+
+  // 找表头行
+  let headerIdx = -1, col = {};
+  for (let i = 0; i < Math.min(grid.length, 20); i++) {
+    const r = grid[i].map(c => c.toUpperCase());
+    if (r.some(c => c.includes('UC SPOT')) || (r.some(c => c.includes('GATEWAY')) && r.some(c => c.includes('CODE')))) {
+      headerIdx = i;
+      r.forEach((h, idx) => {
+        if (h.includes('CODE') || h === 'DEST') col.dest = idx;
+        else if (h.includes('GATEWAY')) col.gateway = idx;
+        else if (h.includes('UC SPOT')) col.spot = idx;
+        else if (h.includes('ROUTING')) col.routing = idx;
+        else if (h.includes('FLIGHT DETAIL')) col.flight = idx;
+        else if (h.includes('DESTINATION')) col.destName = idx;
+      });
+      break;
+    }
+  }
+  if (headerIdx < 0 || col.gateway === undefined || col.spot === undefined) {
+    throw new Error('UC表价表头识别失败');
+  }
+
+  // 无效spot关键词
+  const INVALID = ['pending', 'cancel', 'adhoc', 'embargo'];
+  const isInvalid = s => INVALID.some(k => s.toLowerCase().includes(k));
+
+  // 从Gateway提取城市名
+  const extractCity = gw => { const m = gw.match(/^([A-Z]{3})/); return m ? m[1] : gw; };
+
+  // 解析spot价格，返回 [{transit, normal, swap, add, hub, subHub, onRequest, adhoc}]
+  const parseSpot = (spot, gateway) => {
+    const results = [];
+    spot = spot.trim();
+    // 判断空转/卡转：Gateway含truck→卡转，含PAX/NB→空转
+    const gwType = /truck/i.test(gateway) ? 'truck' : (/PAX|NB/i.test(gateway) ? 'PAX' : '');
+    // 直接价格 "83 / swap space 66" 或 "66"
+    let m = spot.match(/^(\d+(?:\.\d+)?)(?:\s*\/\s*swap\s*space\s*(\d+(?:\.\d+)?))?$/i);
+    if (m) {
+      results.push({ transit: extractCity(gateway), normal: parseFloat(m[1]), swap: m[2] ? parseFloat(m[2]) : null, gwType });
+      return results;
+    }
+    // 多Gateway价格 "LAX 101 / MIA 91" 或 "AKL 70 / LAX 92 / swap space 70 / JFK pending"
+    const segments = spot.split('/').map(s => s.trim());
+    const gwPrices = [];
+    let lastGW = null;
+    segments.forEach(seg => {
+      let m = seg.match(/^([A-Z]{3})\s+(\d+(?:\.\d+)?)$/);
+      if (m) {
+        gwPrices.push({ transit: m[1], normal: parseFloat(m[2]), swap: null });
+        lastGW = m[1];
+        return;
+      }
+      m = seg.match(/^swap\s*space\s+(\d+(?:\.\d+)?)$/i);
+      if (m && lastGW) {
+        const last = gwPrices[gwPrices.length - 1];
+        if (last && last.transit === lastGW) last.swap = parseFloat(m[1]);
+      }
+    });
+    if (gwPrices.length) {
+      gwPrices.forEach(p => results.push(p));
+      return results;
+    }
+    // 单独 "MIA 68"
+    m = spot.match(/^([A-Z]{3})\s+(\d+(?:\.\d+)?)$/);
+    if (m) {
+      results.push({ transit: m[1], normal: parseFloat(m[2]), swap: null });
+      return results;
+    }
+    // 加价格式："SCL + 15 cny/K"、"SCL + 12 cny/K / on request"、"GRU/VCP + 3 cny/K"、"GRU / VCP + 10 cny/K or below 300K ADHOC quotation"
+    m = spot.match(/^([A-Z]{3})(?:\s*\/\s*([A-Z]{3}))?\s*\+\s*(\d+(?:\.\d+)?)\s*cny\/K(?:\s*\/\s*on\s*request)?(?:\s*or\s*below\s*\d+K\s*ADHOC\s*quotation)?$/i);
+    if (m) {
+      const hub = m[1].toUpperCase();
+      const subHub = m[2] ? m[2].toUpperCase() : null;
+      const add = parseFloat(m[3]);
+      const onRequest = /on\s*request/i.test(spot);
+      const adhoc = /ADHOC/i.test(spot);
+      results.push({ transit: 'HUB:' + hub, hub, subHub, add, swap: null, gwType, onRequest, adhoc });
+      return results;
+    }
+    return results;
+  };
+
+  // 第一遍：收集所有行，建立枢纽港基准价
+  const allRows = [];
+  let lastDest = '', lastDestName = '';
+  for (let i = headerIdx + 1; i < grid.length; i++) {
+    const row = grid[i];
+    const destCode = col.dest !== undefined ? row[col.dest] : '';
+    const gateway = col.gateway !== undefined ? row[col.gateway] : '';
+    const spot = col.spot !== undefined ? row[col.spot] : '';
+    if (!gateway) continue;
+    if (destCode && /^[A-Z]{3}$/.test(destCode.toUpperCase())) {
+      lastDest = destCode.toUpperCase();
+      lastDestName = col.destName !== undefined ? row[col.destName] : '';
+    }
+    if (!lastDest) continue;
+    allRows.push({ dest: lastDest, destName: lastDestName, gateway, spot, routing: col.routing !== undefined ? row[col.routing] : '', flight: col.flight !== undefined ? row[col.flight] : '' });
+  }
+
+  // 判断spot格式
+  const isDirectPrice = s => /^\d+(?:\.\d+)?(?:\s*\/\s*swap\s*space\s*\d+(?:\.\d+)?)?$/i.test(s.trim());
+  const isHubAdd = s => /^[A-Z]{3}(?:\s*\/\s*[A-Z]{3})?\s*\+\s*\d+(?:\.\d+)?\s*cny\/K/i.test(s.trim());
+
+  // 建立枢纽港全部有效价（只有直接价格格式的行才算枢纽港基准价）
+  const hubAllPrices = {};  // {SCL: [{transit, normal, swap}, ...]}
+  allRows.forEach(r => {
+    if (isInvalid(r.spot) || !isDirectPrice(r.spot)) return;
+    const parsed = parseSpot(r.spot, r.gateway);
+    parsed.forEach(p => {
+      if (p.normal) {
+        if (!hubAllPrices[r.dest]) hubAllPrices[r.dest] = [];
+        hubAllPrices[r.dest].push({ transit: p.transit, normal: p.normal, swap: p.swap });
+      }
+    });
+  });
+
+  // 第二遍：生成最终记录（中转点只按美国空港LAX/AKL/MIA/JFK区分，二次中转做到对应美国中转点表里）
+  const out = [];
+  allRows.forEach(r => {
+    // 直接价格格式且含无效关键词的整行过滤；多Gateway格式中pending的Gateway会被parseSpot自动跳过
+    if (isDirectPrice(r.spot) && isInvalid(r.spot)) return;
+    const parsed = parseSpot(r.spot, r.gateway);
+    if (!parsed.length) return;
+
+    const baseRemark = [];
+    if (r.destName) baseRemark.push(r.destName);
+    const gwType = /truck/i.test(r.gateway) ? '卡转' : (/PAX|NB/i.test(r.gateway) ? '空转' : '');
+    if (gwType) baseRemark.push(gwType);
+    // SCL (PAX) NB空转单件限重80kg
+    if (/SCL/i.test(r.gateway) && /PAX|NB/i.test(r.gateway) && !/truck/i.test(r.gateway)) {
+      baseRemark.push('SCL空转单件限重80kg');
+    }
+    baseRemark.push('spot:' + r.spot);
+    if (r.flight) baseRemark.push(r.flight);
+
+    // 根据中转点修正routing：
+    // - MIA中转→PVG-LAX-MIA-XXX
+    // - LAX中转且原路径PVG-MIA→PVG-LAX-XXX
+    // - 经SCL/GRU/LIM中转且原路径含多Gateway（PVG-AKL/LAX/JFK-SCL-XXX）→按中转点分别显示
+    const fixRouting = (transit) => {
+      if (!r.routing) return '';
+      let rt = r.routing.trim();
+      if (transit === 'MIA') {
+        rt = rt.replace(/^PVG-MIA/i, 'PVG-LAX-MIA');
+      } else if (transit === 'LAX') {
+        rt = rt.replace(/^PVG-MIA/i, 'PVG-LAX');
+      }
+      // 多Gateway路径：PVG-AKL/LAX/JFK-SCL-XXX → PVG-{transit}-SCL-XXX
+      const m = rt.match(/^PVG-([A-Z\/]+)-(SCL|GRU|LIM|VCP)-/i);
+      if (m && m[1].includes('/')) {
+        rt = rt.replace(/^PVG-[A-Z\/]+-/i, 'PVG-' + transit.toUpperCase() + '-');
+      }
+      return rt;
+    };
+
+    if (isHubAdd(r.spot)) {
+      // 加价格式（SCL + 15）：按美国中转点分组，每个中转点生成一条记录
+      const hub = parsed[0].transit.substring(4);
+      const add = parsed[0].add;
+      const gwType = parsed[0].gwType || (/truck/i.test(r.gateway) ? 'truck' : 'PAX');
+      const gwTypeLabel = gwType === 'truck' ? '卡转' : '空转';
+      if (!hubAllPrices[hub] || !hubAllPrices[hub].length) return;
+      // 按美国中转点分组
+      const byGW = {};
+      hubAllPrices[hub].forEach(hp => {
+        if (!byGW[hp.transit]) byGW[hp.transit] = [];
+        byGW[hp.transit].push({ cabin: '普通仓', price: hp.normal + add, baseNormal: hp.normal, baseSwap: hp.swap });
+        if (hp.swap) byGW[hp.transit].push({ cabin: 'swap仓', price: hp.swap + add, baseNormal: hp.normal, baseSwap: hp.swap });
+      });
+      Object.keys(byGW).forEach(gw => {
+        const prices = byGW[gw];
+        const normalP = prices.find(p => p.cabin === '普通仓');
+        // LAX中转默认价格用普通价（避免swap价与AKL相同导致混淆）；其他中转点用最低价
+        const defaultPrice = (gw === 'LAX' && normalP) ? normalP.price : Math.min(...prices.map(p => p.price));
+        const routing = fixRouting(gw);
+        const remark = baseRemark.slice();
+        if (routing) remark.unshift('路径:' + routing);
+        remark.push('经' + hub + '+' + add + '(' + gwTypeLabel + ')');
+        remark.push('全部价:' + prices.map(p => p.cabin + '=' + p.price).join(' / '));
+        out.push({
+          origin: 'PVG', dest: r.dest, displayName: r.dest,
+          transit: gw,
+          prices: { w100: defaultPrice },
+          densityPrices: {},
+          remarks: [remark.join(' | ')],
+          ucMeta: { type: 'hubAdd', hub: hub, add: add, gwType: gwType, baseGW: gw, normal: normalP ? normalP.baseNormal : null, swap: normalP ? normalP.baseSwap : null }
+        });
+      });
+    } else if (isDirectPrice(r.spot)) {
+      // 直接价格（枢纽港行）：中转点=美国空港
+      const transit = parsed[0].transit;
+      const routing = fixRouting(transit);
+      const remark = baseRemark.slice();
+      if (routing) remark.unshift('路径:' + routing);
+      if (parsed[0].swap) remark.push('swap仓:' + parsed[0].swap);
+      out.push({
+        origin: 'PVG', dest: r.dest, displayName: r.dest,
+        transit: transit,
+        prices: { w100: parsed[0].normal },
+        densityPrices: {},
+        remarks: [remark.join(' | ')],
+        ucMeta: { type: 'hub', hub: r.dest, baseGW: transit, swap: parsed[0].swap }
+      });
+    } else {
+      // 完整价格格式（AKL 70 / LAX 92 / swap space 70）：按美国中转点分组
+      const byGW = {};
+      parsed.forEach(p => {
+        if (!byGW[p.transit]) byGW[p.transit] = [];
+        byGW[p.transit].push({ cabin: '普通仓', price: p.normal });
+        if (p.swap) byGW[p.transit].push({ cabin: 'swap仓', price: p.swap });
+      });
+      Object.keys(byGW).forEach(gw => {
+        const prices = byGW[gw];
+        const normalP = prices.find(p => p.cabin === '普通仓');
+        const swapP = prices.find(p => p.cabin === 'swap仓');
+        // LAX中转默认价格用普通价（避免swap价与AKL相同导致混淆）；其他中转点用最低价
+        const defaultPrice = (gw === 'LAX' && normalP) ? normalP.price : Math.min(...prices.map(p => p.price));
+        const routing = fixRouting(gw);
+        const remark = baseRemark.slice();
+        if (routing) remark.unshift('路径:' + routing);
+        remark.push('全部价:' + prices.map(p => p.cabin + '=' + p.price).join(' / '));
+        out.push({
+          origin: 'PVG', dest: r.dest, displayName: r.dest,
+          transit: gw,
+          prices: { w100: defaultPrice },
+          densityPrices: {},
+          remarks: [remark.join(' | ')],
+          ucMeta: { type: 'fullPrice', baseGW: gw, normal: normalP ? normalP.price : null, swap: swapP ? swapP.price : null }
+        });
+      });
+    }
+  });
+
+  return out;
+}
+
+// ---------- UC文字版表价解析与更新 ----------
+// 解析UC文字版表价，返回 {date, baseDate, hubs:{}, transferRules:{}, miaAdj:number, remarks:[]}
+function parseUCTextUpdate(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const result = { date: '', baseDate: '', hubs: {}, transferRules: {}, miaAdj: 0, remarks: [] };
+  let currentTransit = '';  // 当前美国中转点上下文（AKL/LAX/MIA）
+
+  // 解析日期：22Oct26 → 2026-10-22
+  const parseDate = s => {
+    const m = s.match(/(\d{1,2})([A-Za-z]{3})(\d{2})/);
+    if (!m) return '';
+    const months = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+    return '20' + m[3] + '-' + months[m[2].toLowerCase()] + '-' + m[1].padStart(2,'0');
+  };
+
+  // 解析比重档价格："1:200/300/400/700/1000 56/49/48/47/46" → {d200:56, d300:49, ...}
+  const parseDensityPrices = (ratios, prices) => {
+    const rList = ratios.split('/').map(s => s.trim());
+    const pList = prices.split('/').map(s => parseFloat(s.trim()));
+    const out = {};
+    rList.forEach((r, i) => {
+      if (pList[i] !== undefined && !isNaN(pList[i])) {
+        const key = 'd' + r.replace(/[^0-9]/g, '');
+        out[key] = pList[i];
+      }
+    });
+    return out;
+  };
+
+  // 解析比重档加减："1:200/300/400 各档 减 7/9/2" → {d200:-7, d300:-9, d400:-2}
+  const parseDensityAdj = (ratios, nums) => {
+    const rList = ratios.split('/').map(s => s.trim());
+    const nList = nums.split('/').map(s => parseFloat(s.trim()));
+    const out = {};
+    rList.forEach((r, i) => {
+      if (nList[i] !== undefined && !isNaN(nList[i])) {
+        const key = 'd' + r.replace(/[^0-9]/g, '');
+        out[key] = -nList[i];  // "减"是负数
+      }
+    });
+    return out;
+  };
+
+  lines.forEach((line, idx) => {
+    // 第一行：日期和基准
+    if (idx === 0) {
+      const dm = line.match(/(\d{1,2}[A-Za-z]{3}\d{2})/);
+      if (dm) result.date = parseDate(dm[1]);
+      const bm = line.match(/(\d{1,2}[A-Za-z]{3}\d{2})/g);
+      if (bm && bm[1]) result.baseDate = parseDate(bm[1]);
+      return;
+    }
+
+    // 按分号分割，支持一行多个信息（如"LAX-LIM...；LIM转的点，各档减5"）
+    const segments = line.split(/[；;]/).map(s => s.trim()).filter(Boolean);
+    segments.forEach(seg => {
+      parseSegment(seg);
+    });
+  });
+
+  function parseSegment(seg) {
+    // 枢纽港行："AKL-SCL PAX，+100 57，1:200/300/400/700/1000 56/49/48/47/46"
+    let m = seg.match(/^([A-Z]{3})-([A-Z]{3})\s+PAX[，,]\s*\+100\s+(\d+(?:\.\d+)?)[，,]?\s*(?:1:([\d/]+)\s+([\d./]+))?/);
+    if (m) {
+      const transit = m[1], hub = m[2], w100 = parseFloat(m[3]);
+      currentTransit = transit;
+      const prices = { w100 };
+      if (m[4] && m[5]) Object.assign(prices, parseDensityPrices(m[4], m[5]));
+      const key = transit + '-' + hub;
+      result.hubs[key] = { transit, hub, prices };
+      return;
+    }
+
+    // LAX-LIM / LAX-GRU 格式（没有PAX）："LAX-LIM，+100 44，1:200/300/400/800 43/39/37/35"
+    m = seg.match(/^([A-Z]{3})-([A-Z]{3})[，,]\s*\+100\s+(\d+(?:\.\d+)?)[，,]?\s*(?:1:([\d/]+)\s+([\d./]+))?/);
+    if (m) {
+      const transit = m[1], hub = m[2], w100 = parseFloat(m[3]);
+      currentTransit = transit;
+      const prices = { w100 };
+      if (m[4] && m[5]) Object.assign(prices, parseDensityPrices(m[4], m[5]));
+      const key = transit + '-' + hub;
+      result.hubs[key] = { transit, hub, prices };
+      return;
+    }
+
+    // 转运点规则："SCL 转的点，+100 减 7，1:200/300/400 各档 减 7/9/2，1:700 不变，1:1000 加 2"
+    m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*(.+)/);
+    if (m && currentTransit) {
+      const hub = m[1];
+      const rest = m[2];
+      const adj = {};
+      // +100 减 N
+      let wm = rest.match(/\+100\s*减\s*(\d+(?:\.\d+)?)/);
+      if (wm) adj.w100 = -parseFloat(wm[1]);
+      // 1:200/300/400 各档 减 7/9/2
+      let dm = rest.match(/1:([\d/]+)\s*各档\s*减\s*([\d./]+)/);
+      if (dm) Object.assign(adj, parseDensityAdj(dm[1], dm[2]));
+      // 1:700 不变
+      [...rest.matchAll(/1:(\d+)\s*不变/g)].forEach(x => { adj['d' + x[1]] = 0; });
+      // 1:1000 加 2
+      [...rest.matchAll(/1:(\d+)\s*加\s*(\d+(?:\.\d+)?)/g)].forEach(x => { adj['d' + x[1]] = parseFloat(x[2]); });
+      const key = hub + '-' + currentTransit;
+      result.transferRules[key] = { hub, transit: currentTransit, adj };
+      return;
+    }
+
+    // LIM转的点，各档减5
+    m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*各档\s*减\s*(\d+(?:\.\d+)?)/);
+    if (m && currentTransit) {
+      const hub = m[1];
+      const key = hub + '-' + currentTransit;
+      result.transferRules[key] = { hub, transit: currentTransit, adj: { all: -parseFloat(m[2]) } };
+      return;
+    }
+
+    // MIA各档减5
+    m = seg.match(/^MIA.*各档\s*减\s*(\d+(?:\.\d+)?)/i);
+    if (m) {
+      result.miaAdj = -parseFloat(m[1]);
+      currentTransit = 'MIA';
+      return;
+    }
+
+    // LAX swap space 标题行
+    if (/LAX\s*swap\s*space/i.test(seg)) { currentTransit = 'LAX'; return; }
+
+    // 其他行作为备注
+    if (seg && !/^[A-Z]{3}-[A-Z]{3}/.test(seg) && !/^[A-Z]{3}\s*转的点/.test(seg)) {
+      result.remarks.push(seg);
+    }
+  }
+
+  return result;
+}
+
+// 基于UC文字版更新和基准表价，生成更新后的表价行
+function applyUCTextUpdate(baseRows, textUpdate) {
+  const hubs = textUpdate.hubs;       // {AKL-SCL: {transit, hub, prices}}
+  const rules = textUpdate.transferRules;  // {SCL-AKL: {hub, transit, adj}}
+  const miaAdj = textUpdate.miaAdj;
+
+  // 从remarks中提取Routing，判断经哪个枢纽港转
+  const getTransferHub = (r) => {
+    const remark = (r.remarks || []).join(' ');
+    const m = remark.match(/PVG-[A-Z\/]+-(SCL|LIM|GRU)-/i);
+    return m ? m[1].toUpperCase() : null;
+  };
+
+  // 获取文字版加减规则对应的枢纽港和中转点
+  const getRuleForHub = (hub, gw) => {
+    const key = hub + '-' + gw;
+    return rules[key] || null;
+  };
+
+  return baseRows.map(r => {
+    if (!r.ucMeta) return r;  // 非UC表价行保持不变
+    const meta = r.ucMeta;
+    const newRow = Object.assign({}, r, { prices: Object.assign({}, r.prices), densityPrices: {}, remarks: r.remarks ? r.remarks.slice() : [] });
+    let updated = false;
+
+    // UC表价不区分重量档，只有w100；比重档格式 densityPrices.d400 = {w100: 价格}
+    const toDensityFormat = (pricesObj) => {
+      const dp = {};
+      Object.keys(pricesObj).forEach(k => {
+        if (k.startsWith('d')) dp[k] = { w100: pricesObj[k] };
+      });
+      return dp;
+    };
+
+    if (meta.type === 'hub') {
+      // 枢纽港行：用文字版新价格
+      const key = meta.baseGW + '-' + meta.hub;
+      if (hubs[key]) {
+        const allPrices = Object.assign({}, hubs[key].prices);
+        const dp = {};
+        Object.keys(allPrices).forEach(k => {
+          if (k.startsWith('d')) { dp[k] = { w100: allPrices[k] }; delete allPrices[k]; }
+        });
+        newRow.prices = allPrices;
+        newRow.densityPrices = dp;
+        newRow.remarks.push('文字版更新:' + textUpdate.date);
+        updated = true;
+      }
+    } else if (meta.type === 'hubAdd') {
+      // 本国目的港（加价格式）：枢纽港新价格 + 转运费，不加文字版加减
+      const hubKey = meta.baseGW + '-' + meta.hub;
+      if (hubs[hubKey]) {
+        const hubPrices = hubs[hubKey].prices;
+        const allPrices = {};
+        Object.keys(hubPrices).forEach(k => {
+          allPrices[k] = hubPrices[k] + meta.add;
+        });
+        const dp = {};
+        Object.keys(allPrices).forEach(k => {
+          if (k.startsWith('d')) { dp[k] = { w100: allPrices[k] }; delete allPrices[k]; }
+        });
+        newRow.prices = allPrices;
+        newRow.densityPrices = dp;
+        newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + meta.hub + '+' + meta.add + '(' + (meta.gwType === 'truck' ? '卡转' : '空转') + ')');
+        updated = true;
+      }
+    } else if (meta.type === 'fullPrice') {
+      // 转飞其他国家目的港（完整价格格式）：应用文字版加减到普通价和swap价
+      const transferHub = getTransferHub(r);
+      const rule = transferHub ? getRuleForHub(transferHub, meta.baseGW) : null;
+      if (rule) {
+        const adj = rule.adj;
+        const getAdj = (k) => {
+          if (adj.all !== undefined) return adj.all;
+          if (adj[k] !== undefined) return adj[k];
+          return 0;
+        };
+        const normalBase = meta.normal !== null ? meta.normal : r.prices.w100;
+        const swapBase = meta.swap !== null ? meta.swap : null;
+        const w100Adj = getAdj('w100');
+        const normalW100 = normalBase + w100Adj;
+        const swapW100 = swapBase !== null ? swapBase + w100Adj : null;
+        // LAX中转默认价格用普通价（避免swap价与AKL相同导致混淆）；其他中转点用最低价
+        const isLAX = meta.baseGW === 'LAX' || r.transit === 'LAX';
+        newRow.prices.w100 = isLAX ? normalW100 : (swapW100 !== null ? Math.min(normalW100, swapW100) : normalW100);
+        // 比重档：普通价和swap价分别应用各档加减；LAX中转用普通价，其他用最低价
+        const dp = {};
+        Object.keys(adj).forEach(k => {
+          if (k.startsWith('d')) {
+            const dAdj = getAdj(k);
+            const normalD = normalBase + dAdj;
+            const swapD = swapBase !== null ? swapBase + dAdj : null;
+            dp[k] = { w100: isLAX ? normalD : (swapD !== null ? Math.min(normalD, swapD) : normalD) };
+          }
+        });
+        if (Object.keys(dp).length) newRow.densityPrices = dp;
+        const priceInfo = [];
+        priceInfo.push('普通' + normalW100);
+        if (swapW100 !== null) priceInfo.push('swap' + swapW100);
+        newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + transferHub + '转(' + priceInfo.join('/') + ')');
+        updated = true;
+      }
+    }
+
+    // MIA中转：所有直接从MIA PAX中转的目的港价格-5
+    if (miaAdj && r.transit === 'MIA') {
+      Object.keys(newRow.prices).forEach(k => { newRow.prices[k] = (newRow.prices[k] || 0) + miaAdj; });
+      Object.keys(newRow.densityPrices).forEach(k => {
+        if (newRow.densityPrices[k] && newRow.densityPrices[k].w100 !== undefined) {
+          newRow.densityPrices[k].w100 += miaAdj;
+        }
+      });
+      if (!updated) newRow.remarks.push('文字版更新:' + textUpdate.date + ' MIA' + miaAdj);
+      updated = true;
+    }
+
+    // 构建densityDef（UC表价自定义比重阶梯）
+    if (newRow.densityPrices && Object.keys(newRow.densityPrices).length) {
+      const dKeys = Object.keys(newRow.densityPrices).filter(k => k.startsWith('d')).sort((a,b) => parseInt(a.substring(1)) - parseInt(b.substring(1)));
+      if (dKeys.length) {
+        const defParts = dKeys.map(k => ({ key: k, min: parseInt(k.substring(1)) }));
+        newRow.densityDef = buildDensityDef(defParts);
+      }
+    }
+
+    return newRow;
+  });
+}
+
 async function parseRateSheetToRowsEX(worksheet, transit) {
   const rowCount = worksheet.rowCount;
   const colCount = worksheet.columnCount;
@@ -2660,6 +3234,7 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
   headers.forEach((h, i) => {
     if (h.includes('ORIGIN')) col.origin = i;
     else if (h.includes('DEST')) col.dest = i;
+    else if (h.includes('TRANSIT') || h.includes('GATEWAY')) col.transit = i;
     else if (h.includes('CUR')) col.cur = i;
     else if (/^45\s*KG/.test(h)) col.w45 = i;
     else if (/^100\s*KG/.test(h)) col.w100 = i;
@@ -2774,6 +3349,9 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
     }
     if (!destCandidates.length) continue;
 
+    // 行级中转点（如UC表价每行有不同Gateway），优先于sheet级中转点
+    const rowTransit = col.transit !== undefined ? cellText(row[col.transit]) : '';
+
     destCandidates.forEach((vd, di) => {
       // 用原文（保留 (via NRT) 等后缀）作 key，让"GRU"与"GRU(via NRT)"作为同中转点下的独立价格行并存（各自灰字不同）；
       // 匹配时由 normalizeDest 统一归一成 GRU，可命中多条取低价。via NRT 仅作价格行分离，不参与中转点判定。
@@ -2783,7 +3361,7 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
           origin: col.origin !== undefined ? cellText(row[col.origin]).toUpperCase() : '',
           dest: vKey,
           displayName: vd,
-          transit: transit || '',
+          transit: rowTransit || transit || '',
           prices: {},
           densityPrices: {},
           remarks: []
@@ -2870,9 +3448,13 @@ $('excelFile').addEventListener('change', async (e) => {
       if (/city\s*compress/i.test(sheetName)) continue;
       try {
         const t = transitNameForSheet(sheetName);
-        const rows = await parseRateSheetToRowsEX(worksheet, t);
-        // 行级中转点：Excel 里同 sheet 同中转点，但保留在行上便于分组保存
-        rows.forEach(r => { r.transit = t; });
+        let rows;
+        if (isUCRateSheet(worksheet)) {
+          rows = parseUCRateSheet(worksheet);
+        } else {
+          rows = await parseRateSheetToRowsEX(worksheet, t);
+          rows.forEach(r => { r.transit = t; });
+        }
         if (rows.sheetRemark) sheetRemarks[t] = rows.sheetRemark;
         allRows = allRows.concat(rows);
       } catch(err) {
@@ -2927,12 +3509,20 @@ $('btnSaveRate').addEventListener('click', () => {
   if (!airline) { toast('请填航司代码'); return; }
   const date = $('rateDate').value || todayStr();
   const expiry = $('rateExpiry').value || '';
+  // 判断是否UC基准表价（从Excel导入的UC表价）
+  const isUCBase = airline === 'UC' && parsedRows.some(r => r.ucMeta);
   // 按中转点分组：每个中转点生成一张独立表价（如 AA·直飞DFW、AA·经HND）
   // 解析行自带中转优先（如文字版带经HND）；否则用"中转/备注"输入框值（如 传盛）
   const inputTransit = $('rateTransit') ? ($('rateTransit').value.trim() || '') : '';
   const groups = {};
   parsedRows.forEach(r => { const t = r.transit || inputTransit || ''; (groups[t] = groups[t] || []).push(r); });
-  const all = loadRates();
+  let all = loadRates();
+  // 导入新的UC基准表价时，删除所有旧的UC手写版更新表价
+  if (isUCBase) {
+    const before = all.length;
+    all = all.filter(s => !s.ucUpdated);
+    if (all.length < before) toast(`已删除 ${before - all.length} 张旧UC手写版更新表价（基准更新后失效）`);
+  }
   let expiredCount = 0;
   const created = [];
   Object.keys(groups).forEach(t => {
@@ -2949,6 +3539,8 @@ $('btnSaveRate').addEventListener('click', () => {
       remark: (parsedRows._sheetRemarks && parsedRows._sheetRemarks[t]) || '',
       created_at: new Date().toISOString()
     };
+    // UC基准表价标记
+    if (isUCBase) sheet.ucBase = true;
     // 该中转点表若带自定义比重阶梯（如 AA128 的 1:200+ / LH 的平散货），提升到表级供匹配
     if (gRows[0] && gRows[0]._densityDef && gRows[0]._densityDef.length) {
       sheet.densityDef = gRows[0]._densityDef;
@@ -3016,7 +3608,7 @@ function renderRateList() {
   const tbody = $('rateListBody');
   $('rateListEmpty').style.display = all.length ? 'none' : 'block';
   tbody.innerHTML = all.map(s => {
-    const adj = currentAdjFor(s.airline);
+    const adj = currentAdjFor(s.airline, s.transit);
     const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
     const today = todayStr();
     const autoExpired = s.expiry && s.expiry < today;   // 到期日已过
@@ -3052,7 +3644,9 @@ function renderRateList() {
       if (act === 'view') { openRateDetail(id); return; }
       if (act === 'adj') {
         const s = loadRates().find(x => x.id === id); if (!s) return;
-        $('adjAirline').value = s.airline; renderAdjList(); $('adjModalMask').classList.add('show'); return;
+        $('adjAirline').value = s.airline;
+        $('adjTransit').value = s.transit || '';
+        renderAdjList(); $('adjModalMask').classList.add('show'); return;
       }
       if (act === 'del') {
         if (!confirm('删除这张牌价表？')) return;
@@ -3087,11 +3681,15 @@ function saveAdjs(list) {
   syncToCloud('/api/adjustments', list);
 }
 
-// 查某航司当前生效的调价（可叠加多个）
-function currentAdjFor(airline, date) {
+// 查某航司+中转点当前生效的调价（可叠加多个）
+// transit为空的调价记录匹配所有该航司表价（兼容旧数据）；有transit的只匹配相同中转点
+function currentAdjFor(airline, transit, date) {
   const d = date || todayStr();
+  const t = transit || '';
   return loadAdjs().filter(a =>
-    a.airline === airline && a.date <= d && (!a.expiry || a.expiry >= d)
+    a.airline === airline &&
+    (!a.transit || a.transit === t) &&
+    a.date <= d && (!a.expiry || a.expiry >= d)
   ).reduce((sum, a) => sum + a.delta, 0);
 }
 
@@ -3138,12 +3736,15 @@ function renderTransferList() {
 $('btnAddAdj').addEventListener('click', () => {
   const airline = $('adjAirline').value.trim().toUpperCase();
   if (!airline) { toast('请填航司代码'); return; }
+  const transit = $('adjTransit') ? $('adjTransit').value.trim() : '';
   const delta = parseFloat($('adjDelta').value);
   if (isNaN(delta)) { toast('请填调整金额（如 -5 或 +3）'); return; }
-  if (!confirm(`确认对 ${airline} 添加限时优惠 ${delta>0?'+':''}${delta} 元/kg？\n生效后将叠加到该航司表价上参与匹配。`)) return;
+  const scope = transit ? `${airline}·${transit}` : `${airline}（全航司）`;
+  if (!confirm(`确认对 ${scope} 添加限时优惠 ${delta>0?'+':''}${delta} 元/kg？\n生效后将叠加到该范围表价上参与匹配。`)) return;
   const adj = {
     id: uid(),
     airline,
+    transit: transit || '',
     delta: delta,
     date: todayStr(),
     expiry: $('adjExpiry').value || '',
@@ -3152,8 +3753,9 @@ $('btnAddAdj').addEventListener('click', () => {
   const all = loadAdjs();
   all.unshift(adj);
   saveAdjs(all);
-  toast(`已添加 ${airline} ${delta>0?'+':''}${delta} 限时优惠`);
+  toast(`已添加 ${scope} ${delta>0?'+':''}${delta} 限时优惠`);
   $('adjAirline').value = '';
+  if ($('adjTransit')) $('adjTransit').value = '';
   $('adjDelta').value = '';
   $('adjExpiry').value = '';
   renderAdjList();
@@ -3171,7 +3773,7 @@ function renderAdjList() {
   box.innerHTML = active.map(a => `
     <div class="similar-item">
       <div class="similar-left">
-        <b>${a.airline}</b>
+        <b>${a.airline}${a.transit ? '·' + a.transit : '（全航司）'}</b>
         <span style="margin-left:8px">${a.delta>0?'+':''}${a.delta} 元/kg</span>
         <div class="similar-meta">生效 ${a.date}${a.expiry ? ' 至 '+a.expiry : '（长期）'}${a.expiry===today?' · <span style="color:var(--accent)">今天到期</span>':''}</div>
       </div>
@@ -3273,7 +3875,7 @@ $('btnQuickSearch').addEventListener('click', () => {
     const rows = (s.rows || []).filter(r => normalizeDest(r.dest) === dest);
     if (!rows.length) return;
     found = true;
-    const adj = currentAdjFor(s.airline);
+    const adj = currentAdjFor(s.airline, s.transit);
     let part = '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
     part += '<b>' + s.airline + '</b> ' + s.date;
     if (adj !== 0) part += ' <span style="color:var(--accent)">(优惠' + (adj > 0 ? '+' : '') + adj + ')</span>';
@@ -3749,6 +4351,7 @@ function detectAirlineFromExcel(fileName, workbook) {
   if (/MU\s*[\/\-]\s*HO/.test(hay)) return 'MU/HO';
   if (/\bDL\b/.test(hay)) return 'DL';
   if (/\bLH\b/.test(hay)) return 'LH';
+  if (/\bUC\b/.test(hay) || /LATAM/i.test(hay)) return 'UC';
   if (/\bAA\b/.test(hay) || /AA128|上海AA/.test(hay)) return 'AA';
   return '';
 }
@@ -3790,10 +4393,77 @@ $('btnParsePasted').addEventListener('click', () => {
     toast('识别过程出错: ' + (e && e.message));
   }
 });
+
+// UC文字版更新：基于已导入的UC基准表价，应用文字版更新生成新表价
+$('btnUCTextUpdate').addEventListener('click', () => {
+  try {
+    const text = $('pastedRate').value.trim();
+    if (!text) { toast('请先粘贴UC文字版表价'); return; }
+    const update = parseUCTextUpdate(text);
+    if (!update.date) { toast('未能识别UC文字版（需含生效日期，如22Oct26）'); return; }
+    if (!Object.keys(update.hubs).length && !update.miaAdj) { toast('未能识别到枢纽港价格或MIA调整'); return; }
+
+    // 找到已导入的UC基准表价（ucBase标记，排除手写版更新表价）
+    const allRates = loadRates();
+    const ucSheets = allRates.filter(s => s.ucBase);
+    if (!ucSheets.length) { toast('未找到已导入的UC基准表价，请先导入基准Excel'); return; }
+
+    // 合并所有UC表价的行
+    let baseRows = [];
+    ucSheets.forEach(s => { baseRows = baseRows.concat(s.rows || []); });
+
+    // 应用文字版更新
+    const updatedRows = applyUCTextUpdate(baseRows, update);
+
+    // 按中转点分组
+    const groups = {};
+    updatedRows.forEach(r => {
+      const t = r.transit || '';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(r);
+    });
+
+    // 生成预览
+    let previewHtml = `<div style="font-size:13px;color:var(--green)">✔ UC文字版更新解析成功（生效 ${update.date}）</div>`;
+    previewHtml += `<div style="font-size:12.5px;color:var(--text-2);margin-top:4px">枢纽港更新：${Object.keys(update.hubs).join('、') || '无'}</div>`;
+    if (update.miaAdj) previewHtml += `<div style="font-size:12.5px;color:var(--text-2)">MIA全局调整：${update.miaAdj>0?'+':''}${update.miaAdj}</div>`;
+    if (update.remarks.length) previewHtml += `<div style="font-size:12px;color:var(--text-3);margin-top:4px">备注：${update.remarks.join('；')}</div>`;
+    previewHtml += `<div style="font-size:12.5px;margin-top:8px">将生成 ${Object.keys(groups).length} 张表价（中转点：${Object.keys(groups).join('、')}）</div>`;
+
+    // 确认后保存
+    if (!confirm(`确认应用UC文字版更新？\n生效日期：${update.date}\n生成表价：${Object.keys(groups).length}张（中转点：${Object.keys(groups).join('、')}）\n将作为新表价保存，原基准表价保留。`)) return;
+
+    // 保存新表价
+    const newSheets = Object.keys(groups).map(t => {
+      const rows = groups[t];
+      // 从行中提取densityDef作为表级别的比重阶梯
+      const rowWithDef = rows.find(r => r.densityDef && r.densityDef.length);
+      const sheet = {
+        id: uid(),
+        airline: 'UC手写版',
+        transit: t,
+        date: update.date,
+        rows: rows,
+        ucUpdated: true,  // 标记为UC手写版更新表价
+        created_at: new Date().toISOString()
+      };
+      if (rowWithDef) sheet.densityDef = rowWithDef.densityDef;
+      return sheet;
+    });
+    saveRates(allRates.concat(newSheets));
+    renderRateList();
+    $('pastedPreview').innerHTML = previewHtml + `<div style="font-size:13px;color:var(--green);margin-top:8px">✔ 已保存 ${newSheets.length} 张UC更新表价</div>`;
+    toast(`✔ 已保存 ${newSheets.length} 张UC更新表价（生效${update.date}）`);
+  } catch (e) {
+    console.error('UC文字版更新出错:', e);
+    toast('UC文字版更新出错: ' + (e && e.message));
+  }
+});
+
 function openRateDetail(id) {
   const s = loadRates().find(x => x.id === id);
   if (!s) return;
-  const adj = currentAdjFor(s.airline);
+  const adj = currentAdjFor(s.airline, s.transit);
   $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时优惠 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
   let html = '';
   if (adj !== 0) {
