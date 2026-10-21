@@ -1008,7 +1008,8 @@ const NOISE_DEST = new Set([
   'FOC','CSX','HRB','SHE','URC','LXA','JNB','DKR','LOS','CAI','ADD','RUN','MBA',
   'DIM','DIMS','VW','GROSS','VOL','CHARGEABLE',
   'AOD','POR','DES','REF','QTY','LCL','FCL',
-  'CMS','CM','MM','MTR','INCH','FEET','LBS','KG','WT','DIMENSION','SIZE'
+  'CMS','CM','MM','MTR','INCH','FEET','LBS','KG','WT','DIMENSION','SIZE',
+  'AOL','AOD','COMM','CARGO','DATA','AWB','MAW','HAW','ORIG','DEST','POL','POD'
 ]);
 
 // 智能预处理：处理欧洲小数点逗号和千分位
@@ -1549,6 +1550,18 @@ function priceFromRow(row, wk, effDk) {
       }
     }
   }
+  // ②.5 当前比重档不存在 → 回退flat平货档（统配表价没有泡/重货价时按平货价显示）
+  if (base === undefined && hasDensity && effDk && effDk !== 'flat' && row.densityPrices['flat']) {
+    const flat = row.densityPrices['flat'];
+    if (flat[wk] !== undefined) { base = flat[wk]; densityUsed = 'flat'; }
+    else if (wk === 'w45' && flat['w100'] !== undefined) { base = flat['w100']; effectiveWk = 'w100'; densityUsed = 'flat'; }
+    else {
+      for (let i = idx + 1; i < ORDER.length; i++) {
+        const k = ORDER[i];
+        if (flat[k] !== undefined) { base = flat[k]; effectiveWk = k; densityUsed = 'flat'; break; }
+      }
+    }
+  }
   // ③ 比重档完全没有当前密度 → 回退标准重量档价；w45 无价时优先回退标准 w100 档价
   if (base === undefined && row.prices) {
     if (row.prices[wk] !== undefined) { base = row.prices[wk]; densityUsed = null; }
@@ -1727,6 +1740,8 @@ function updateRateMatch() {
       const rd = normalizeDest(r.dest);
       const hit = destMatches(rd, qd);
       if (!hit) return;
+      // UC欧洲中转方案暂时隐藏（BRU/AMS/FRA/MUC/VIE/CDG/LHR等）
+      if (r.ucMeta && /^(BRU|AMS|FRA|MUC|VIE|CDG|LHR|MAD|BCN|PAR|LON|ROM|MIL|STO|OSL|CPH|ZRH|VCE)$/i.test(r.transit || '')) return;
 
       // 取价：比重档当前档 → 低重量档 → 标准重量档 → variants 散货补位（统一走 priceFromRow）
       const _p = priceFromRow(r, wk, effDk);
@@ -2897,32 +2912,87 @@ function parseUCRateSheet(worksheet) {
         ucMeta: { type: 'hub', hub: r.dest, baseGW: transit, swap: parsed[0].swap }
       });
     } else {
-      // 完整价格格式（AKL 70 / LAX 92 / swap space 70）：按美国中转点分组
-      const byGW = {};
-      parsed.forEach(p => {
-        if (!byGW[p.transit]) byGW[p.transit] = [];
-        byGW[p.transit].push({ cabin: '普通仓', price: p.normal });
-        if (p.swap) byGW[p.transit].push({ cabin: 'swap仓', price: p.swap });
-      });
-      Object.keys(byGW).forEach(gw => {
-        const prices = byGW[gw];
-        const normalP = prices.find(p => p.cabin === '普通仓');
-        const swapP = prices.find(p => p.cabin === 'swap仓');
-        // LAX中转默认价格用普通价（避免swap价与AKL相同导致混淆）；其他中转点用最低价
-        const defaultPrice = (gw === 'LAX' && normalP) ? normalP.price : Math.min(...prices.map(p => p.price));
-        const routing = fixRouting(gw);
+      // 完整价格格式（AKL 70 / LAX 92 / swap space 70 / JFK pending）
+      // 提取各中转点价格：LAX普通价=货机开口价，swap space=货机swap space价
+      const laxP = parsed.find(p => p.transit === 'LAX');
+      const aklP = parsed.find(p => p.transit === 'AKL');
+      const miaP = parsed.find(p => p.transit === 'MIA');
+      const jfkP = parsed.find(p => p.transit === 'JFK');
+      const laxNormal = laxP ? laxP.normal : null;
+      const laxSwap = laxP ? laxP.swap : null;
+
+      // LAX中转：主价=货机开口价(LAX普通价)，备注显示swap space价
+      if (laxNormal !== null) {
+        const routing = fixRouting('LAX');
         const remark = baseRemark.slice();
         if (routing) remark.unshift('路径:' + routing);
-        remark.push('全部价:' + prices.map(p => p.cabin + '=' + p.price).join(' / '));
+        remark.push('货机开口价=' + laxNormal);
+        if (laxSwap !== null) remark.push('货机swap space价=' + laxSwap);
         out.push({
           origin: 'PVG', dest: r.dest, displayName: r.dest,
-          transit: gw,
+          transit: 'LAX',
+          prices: { w100: laxNormal },
+          densityPrices: {},
+          remarks: [remark.join(' | ')],
+          ucMeta: { type: 'fullPrice', baseGW: 'LAX', normal: laxNormal, swap: laxSwap, miaUseSwap: false }
+        });
+      }
+
+      // AKL中转：主价=min(AKL价, swap价)；相同时只显示AKL价；不同时备注显示另一个价+货机开口价
+      if (aklP && aklP.normal !== null) {
+        const aklNormal = aklP.normal;
+        const swapVal = laxSwap !== null ? laxSwap : aklP.swap;
+        const isSame = swapVal !== null && aklNormal === swapVal;
+        const defaultPrice = swapVal !== null ? Math.min(aklNormal, swapVal) : aklNormal;
+        const routing = fixRouting('AKL');
+        const remark = baseRemark.slice();
+        if (routing) remark.unshift('路径:' + routing);
+        if (!isSame && swapVal !== null) {
+          if (aklNormal < swapVal) remark.push('货机swap space价=' + swapVal);
+          else remark.push('AKL价=' + aklNormal);
+        }
+        if (laxNormal !== null) remark.push('货机开口价=' + laxNormal);
+        out.push({
+          origin: 'PVG', dest: r.dest, displayName: r.dest,
+          transit: 'AKL',
           prices: { w100: defaultPrice },
           densityPrices: {},
           remarks: [remark.join(' | ')],
-          ucMeta: { type: 'fullPrice', baseGW: gw, normal: normalP ? normalP.price : null, swap: swapP ? swapP.price : null }
+          ucMeta: { type: 'fullPrice', baseGW: 'AKL', normal: aklNormal, swap: swapVal, laxNormal: laxNormal }
         });
-      });
+      }
+
+      // MIA中转：主价=货机swap space价，路径PVG-LAX-MIA-XXX，备注显示货机开口价；MIA直转价不用保留
+      if (laxSwap !== null) {
+        const routing = fixRouting('MIA');
+        const remark = baseRemark.slice();
+        if (routing) remark.unshift('路径:' + routing);
+        remark.push('货机swap space价=' + laxSwap);
+        if (laxNormal !== null) remark.push('货机开口价=' + laxNormal);
+        out.push({
+          origin: 'PVG', dest: r.dest, displayName: r.dest,
+          transit: 'MIA',
+          prices: { w100: laxSwap },
+          densityPrices: {},
+          remarks: [remark.join(' | ')],
+          ucMeta: { type: 'fullPrice', baseGW: 'MIA', normal: laxNormal, swap: laxSwap, miaUseSwap: true }
+        });
+      }
+
+      // JFK中转：有价格且非pending时显示
+      if (jfkP && jfkP.normal !== null) {
+        const routing = fixRouting('JFK');
+        const remark = baseRemark.slice();
+        if (routing) remark.unshift('路径:' + routing);
+        out.push({
+          origin: 'PVG', dest: r.dest, displayName: r.dest,
+          transit: 'JFK',
+          prices: { w100: jfkP.normal },
+          densityPrices: {},
+          remarks: [remark.join(' | ')],
+          ucMeta: { type: 'fullPrice', baseGW: 'JFK', normal: jfkP.normal, swap: jfkP.swap }
+        });
+      }
     }
   });
 
@@ -3131,7 +3201,8 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         updated = true;
       }
     } else if (meta.type === 'fullPrice') {
-      // 转飞其他国家目的港（完整价格格式）：应用文字版加减到普通价和swap价
+      // 转飞其他国家目的港（完整价格格式）：应用文字版加减
+      // MIA中转(miaUseSwap=true)：主价用swap价；LAX中转用普通价；AKL中转用最低价
       const transferHub = getTransferHub(r);
       const rule = transferHub ? getRuleForHub(transferHub, meta.baseGW) : null;
       if (rule) {
@@ -3146,23 +3217,33 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         const w100Adj = getAdj('w100');
         const normalW100 = normalBase + w100Adj;
         const swapW100 = swapBase !== null ? swapBase + w100Adj : null;
-        // LAX中转默认价格用普通价（避免swap价与AKL相同导致混淆）；其他中转点用最低价
+        // MIA中转用swap价；LAX中转用普通价；AKL中转用最低价
+        const isMIA = meta.miaUseSwap === true || meta.baseGW === 'MIA' || r.transit === 'MIA';
         const isLAX = meta.baseGW === 'LAX' || r.transit === 'LAX';
-        newRow.prices.w100 = isLAX ? normalW100 : (swapW100 !== null ? Math.min(normalW100, swapW100) : normalW100);
-        // 比重档：普通价和swap价分别应用各档加减；LAX中转用普通价，其他用最低价
+        let defaultW100;
+        if (isMIA && swapW100 !== null) defaultW100 = swapW100;
+        else if (isLAX) defaultW100 = normalW100;
+        else defaultW100 = swapW100 !== null ? Math.min(normalW100, swapW100) : normalW100;
+        newRow.prices.w100 = defaultW100;
+        // 比重档
         const dp = {};
         Object.keys(adj).forEach(k => {
           if (k.startsWith('d')) {
             const dAdj = getAdj(k);
             const normalD = normalBase + dAdj;
             const swapD = swapBase !== null ? swapBase + dAdj : null;
-            dp[k] = { w100: isLAX ? normalD : (swapD !== null ? Math.min(normalD, swapD) : normalD) };
+            let val;
+            if (isMIA && swapD !== null) val = swapD;
+            else if (isLAX) val = normalD;
+            else val = swapD !== null ? Math.min(normalD, swapD) : normalD;
+            dp[k] = { w100: val };
           }
         });
         if (Object.keys(dp).length) newRow.densityPrices = dp;
+        // 备注：显示货机开口价和swap价
         const priceInfo = [];
-        priceInfo.push('普通' + normalW100);
-        if (swapW100 !== null) priceInfo.push('swap' + swapW100);
+        priceInfo.push('货机开口价' + normalW100);
+        if (swapW100 !== null) priceInfo.push('货机swap价' + swapW100);
         newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + transferHub + '转(' + priceInfo.join('/') + ')');
         updated = true;
       }
@@ -3534,7 +3615,13 @@ $('btnSaveRate').addEventListener('click', () => {
       date,
       expiry,
       origin: 'PVG',
-      rows: gRows.map(r => { const c = Object.assign({}, r); delete c._densityDef; return c; }),
+      rows: gRows.map(r => { 
+        const c = Object.assign({}, r); 
+        delete c._densityDef; 
+        // AA经HNL表价带++标记（散货价++）
+        if (airline === 'AA' && t === '经HNL') c.pp = true;
+        return c; 
+      }),
       image: '', // 预留截图
       remark: (parsedRows._sheetRemarks && parsedRows._sheetRemarks[t]) || '',
       created_at: new Date().toISOString()
