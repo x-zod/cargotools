@@ -3902,18 +3902,18 @@ function currentAdjFor(airline, transit, date) {
 const LH_TRANSFER_FEES = {
   hub: 'FRA', airline: 'LH',
   fees: {
-    VIE:0, AMS:0.5,
-    CGN:1.0, DRS:1.0, DUS:1.0, FMO:1.0, GRZ:1.0, LEJ:1.0, LGG:1.0, LUX:1.0, NUE:1.0, PAD:1.0, PRG:1.0, STR:1.0,
-    BER:1.5, BLQ:1.5, BRE:1.5, BRN:1.5, BRU:1.5, BSL:1.5, BTS:1.5, CDG:1.5, FLR:1.5, GVA:1.5, HAJ:1.5, HAM:1.5, LIL:1.5, LJU:1.5, LNZ:1.5, LYS:1.5, MST:1.5, RTM:1.5, SXB:1.5, TSR:1.5, WAW:1.5, ZRH:1.5,
-    BCN:2.0, BEG:2.0, BIO:2.0, BLL:2.0, BUD:2.0, CPH:2.0, FCO:2.0, KRK:2.0, LHR:2.0, MAD:2.0, MLH:2.0, MRS:2.0, MXP:2.0, OTP:2.0,
-    GOT:2.5, MMX:2.5, SZG:2.5, TRN:2.5, VCE:2.5, VNO:2.5,
-    ARN:3.0, MAN:3.0, NCE:3.0, OPO:3.0, ORY:3.0, RIX:3.0, SJJ:3.0, VLC:3.0,
-    BOD:3.5, LIS:3.5, OSL:3.5,
-    BGO:4.0, NTE:4.0,
-    ABZ:4.5, EDI:4.5, HEL:4.5, RNS:4.5,
-    BHX:5.0, DUB:5.0, TLS:5.0,
-    GLA:5.5, ORK:5.5, SVG:5.5,
-    BFS:6.0, SKP:6.0, SNN:6.0, TLL:6.0
+    FRA:0, MUC:0, VIE:0,
+    BTS:1, CGN:1, DRS:1, FMO:1, LEJ:1, NUE:1, PAD:1, STR:1,
+    BER:1.5, BLQ:1.5, BRE:1.5, BRN:1.5, BRU:1.5, BSL:1.5, CDG:1.5, DUS:1.5, FLR:1.5, GRZ:1.5, HAJ:1.5, HAM:1.5, LGG:1.5, LIL:1.5, LNZ:1.5, LUX:1.5, MLH:1.5, MRS:1.5, MST:1.5, PRG:1.5, RTM:1.5, SXB:1.5, TRS:1.5, TSR:1.5, ZRH:1.5,
+    AMS:2, BIO:2, BUD:2, CPH:2, GOT:2, GVA:2, KTW:2, LJU:2, LYS:2, MXP:2, NCE:2, SOF:2, SWK:2, SZG:2,
+    BEG:2.5, MMX:2.5, VCE:2.5, WAW:2.5, ZAG:2.5,
+    BLL:3, BOD:3, FCO:3, HOH:3, LHR:3, MAD:3, MAN:3, OPO:3, RIX:3, SJJ:3, SKP:3, VLC:3,
+    BCN:3.5, LIS:3.5, ORY:3.5, OSL:3.5, OTP:3.5,
+    ARN:4, EMA:4, HEL:4, NTE:4,
+    EDI:4.5, RNS:4.5, VNO:4.5,
+    ABZ:5, BHX:5, DUB:5, GOA:5, SVG:5, TLS:5, TRN:5,
+    GLA:5.5, ORK:5.5,
+    BFS:6, SNN:6, TLL:6
   }
 };
 // 查某目的港的 LH 转运费；有则返回 {fee, hub}，否则 null
