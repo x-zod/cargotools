@@ -392,6 +392,32 @@
       padding-right: calc(16px + env(safe-area-inset-right));
     }
   }
+  /* 快速查询 & 已导入表价：标题与控件同行 */
+  .quick-query-title, .rate-tabs-title {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .quick-query-title .title-text, .rate-tabs-title .title-text {
+    flex-shrink: 0;
+  }
+  .rate-tabs-title #rateCategoryTabs {
+    padding: 0;
+  }
+  @media (max-width: 768px) {
+    /* 移动端：已导入表价 - "全部"与标题同行，其余按钮第二行 */
+    .rate-tabs-title #rateCategoryTabs {
+      flex: 1 1 100%;
+      padding-top: 8px;
+    }
+    /* 移动端：快速查询 - 输入框缩小，保持左对齐 */
+    .quick-query-title #quickDest {
+      width: 140px;
+      min-width: 120px;
+    }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
 <script>
@@ -646,8 +672,8 @@ if (typeof ExcelJS === 'undefined') {
 <!-- ============ 视图：航司表价 ============ -->
 <div class="view" id="view-rates">
   <div class="card">
-    <div class="card-title">快速查询</div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="card-title quick-query-title">
+      <span class="title-text">快速查询</span>
       <input id="quickDest" placeholder="目的港三字代码，如 JFK" style="text-transform:uppercase;padding:8px 10px;font-size:13px;width:210px">
       <button class="btn btn-primary" id="btnQuickSearch">查询</button>
       <span id="quickInfo"></span>
@@ -656,15 +682,17 @@ if (typeof ExcelJS === 'undefined') {
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
-    <div class="card-title" style="padding:14px 16px 0">已导入表价</div>
-    <div id="rateCategoryTabs" style="display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap">
-      <button class="btn btn-sm btn-primary rate-cat-tab" data-cat="all">全部</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="aa">AA</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="dl">DL</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="lh">LH</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="uc">UC</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="unified">统配</button>
-      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="other">其他</button>
+    <div class="card-title rate-tabs-title" style="padding:14px 16px 0">
+      <span class="title-text">已导入表价</span>
+      <button class="btn btn-sm btn-primary rate-cat-tab tab-all" data-cat="all">全部</button>
+      <div id="rateCategoryTabs" style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="aa">AA</button>
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="dl">DL</button>
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="lh">LH</button>
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="uc">UC</button>
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="unified">统配</button>
+        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="other">其他</button>
+      </div>
     </div>
     <table class="mobile-cards">
       <thead>
