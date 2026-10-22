@@ -3930,7 +3930,7 @@ function renderTransferList() {
   // LH 直达港（LH 表目的港，如 MUC/FRA）并入 +0 组，展示为 "+0 MUC/FRA/VIE"
   const direct = [];
   loadRates().forEach(s => { if (s.airline === (LH_TRANSFER_FEES.airline || '')) (s.rows || []).forEach(r => String(r.dest || '').split(/[\/\s]+/).forEach(d => { if (d && d.length === 3) direct.push(d.toUpperCase()); })); });
-  if (direct.length) g[0] = Array.from(new Set(direct)).concat(g[0] || []);
+  if (direct.length) g[0] = Array.from(new Set([...direct, ...(g[0] || [])]));
   const lines = Object.keys(g).sort((a, b) => a - b).map(f =>
     `<div style="font-size:12px;margin:2px 0;color:var(--text-2)"><b style="color:var(--accent)">+${f}</b>　${g[f].join('/')}</div>`
   ).join('');
