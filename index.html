@@ -1909,12 +1909,12 @@ function updateRateMatch() {
     box.innerHTML = dbg;
     return;
   }
-  // 去重：同一航司+中转点+目的港只保留最新生效日期的表价
+  // 去重：同一航司+中转点+目的港+路径只保留最新生效日期的表价（不同路径如GRU卡转/SCL空转分别保留）
   const seen = {};
   const deduped = [];
   matches.sort((a,b) => a.final - b.final);
   matches.forEach(m => {
-    const key = m.airline + '|' + m.transit + '|' + m.matchedDest;
+    const key = m.airline + '|' + m.transit + '|' + m.matchedDest + '|' + (m.routing || '') + '|' + (m.gwType || '');
     if (!seen[key] || (m.sheetDate || '') > (seen[key].sheetDate || '')) {
       seen[key] = m;
     }
@@ -1947,8 +1947,21 @@ function updateRateMatch() {
     if (m.gwType) extras.push(m.gwType);
     if (m.ucNote) extras.push(m.ucNote);
     if (extras.length) titleLine += ` | ${extras.join(' | ')}`;
-    // 第二行：表价生效日期（UC表价不显示冗长remark）
-    const metaLine = isUC ? `表价生效 ${m.sheetDate}` : `表价生效 ${m.sheetDate}${m.remark ? (' · '+m.remark) : ''}`;
+    // 第二行：表价生效日期 + UC表价关键备注（空转价/货机开口价/货机swap价）
+    let metaLine = `表价生效 ${m.sheetDate}`;
+    if (isUC) {
+      const remark = m.remark || '';
+      const extras = [];
+      const airMatch = remark.match(/空转价=([\d.]+)/);
+      if (airMatch) extras.push('空转价=' + airMatch[1]);
+      const openMatch = remark.match(/货机开口价=([\d.]+)/);
+      if (openMatch) extras.push('货机开口价=' + openMatch[1]);
+      const swapMatch = remark.match(/货机swap(?:\s*space)?价=([\d.]+)/);
+      if (swapMatch) extras.push('货机swap价=' + swapMatch[1]);
+      if (extras.length) metaLine += ' · ' + extras.join(' / ');
+    } else {
+      metaLine += m.remark ? (' · '+m.remark) : '';
+    }
     return `
     <div class="similar-item" style="${m.final === finalMatches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
       <div class="similar-left">
@@ -2855,10 +2868,11 @@ function parseUCRateSheet(worksheet) {
       } else if (transit === 'LAX') {
         rt = rt.replace(/^PVG-MIA/i, 'PVG-LAX');
       }
-      // 多Gateway路径：PVG-AKL/LAX/JFK-SCL-XXX → PVG-{transit}-SCL-XXX
+      // 多Gateway路径：PVG-AKL/LAX/JFK-SCL-XXX → PVG-{transit}-SCL-XXX（MIA中转为PVG-LAX-MIA-SCL-XXX）
       const m = rt.match(/^PVG-([A-Z\/]+)-(SCL|GRU|LIM|VCP)-/i);
       if (m && m[1].includes('/')) {
-        rt = rt.replace(/^PVG-[A-Z\/]+-/i, 'PVG-' + transit.toUpperCase() + '-');
+        const prefix = transit === 'MIA' ? 'PVG-LAX-MIA' : 'PVG-' + transit.toUpperCase();
+        rt = rt.replace(/^PVG-[A-Z\/]+-/i, prefix + '-');
       }
       return rt;
     };
@@ -2921,17 +2935,26 @@ function parseUCRateSheet(worksheet) {
       const laxNormal = laxP ? laxP.normal : null;
       const laxSwap = laxP ? laxP.swap : null;
 
-      // LAX中转：主价=货机开口价(LAX普通价)，备注显示swap space价
-      if (laxNormal !== null) {
+      // 判断是否经二次中转港（SCL/GRU/LIM/VCP）——这类行不生成MIA中转记录（MIA不会绕到二次中转港）
+      const hasSecondaryHub = /[\/-](SCL|GRU|LIM|VCP)[\/-]/i.test(r.routing || '');
+      // 判断是否MIA直转行（原routing=PVG-MIA-XXX，不含二次中转港）——这类行不生成LAX中转记录（MIA已用LAX价）
+      const isMIADirect = /^PVG-MIA/i.test(r.routing || '') && !hasSecondaryHub;
+
+      // LAX中转：主价=min(货机开口价, swap价)；MIA直转行不生成LAX中转记录
+      if (laxNormal !== null && !isMIADirect) {
+        const isSame = laxSwap !== null && laxNormal === laxSwap;
+        const defaultPrice = laxSwap !== null ? Math.min(laxNormal, laxSwap) : laxNormal;
         const routing = fixRouting('LAX');
         const remark = baseRemark.slice();
         if (routing) remark.unshift('路径:' + routing);
-        remark.push('货机开口价=' + laxNormal);
-        if (laxSwap !== null) remark.push('货机swap space价=' + laxSwap);
+        if (!isSame && laxSwap !== null) {
+          if (laxNormal < laxSwap) remark.push('货机swap space价=' + laxSwap);
+          else remark.push('货机开口价=' + laxNormal);
+        }
         out.push({
           origin: 'PVG', dest: r.dest, displayName: r.dest,
           transit: 'LAX',
-          prices: { w100: laxNormal },
+          prices: { w100: defaultPrice },
           densityPrices: {},
           remarks: [remark.join(' | ')],
           ucMeta: { type: 'fullPrice', baseGW: 'LAX', normal: laxNormal, swap: laxSwap, miaUseSwap: false }
@@ -2962,21 +2985,27 @@ function parseUCRateSheet(worksheet) {
         });
       }
 
-      // MIA中转：主价=货机swap space价，路径PVG-LAX-MIA-XXX，备注显示货机开口价；MIA直转价不用保留
-      if (laxSwap !== null) {
-        const routing = fixRouting('MIA');
-        const remark = baseRemark.slice();
-        if (routing) remark.unshift('路径:' + routing);
-        remark.push('货机swap space价=' + laxSwap);
-        if (laxNormal !== null) remark.push('货机开口价=' + laxNormal);
-        out.push({
-          origin: 'PVG', dest: r.dest, displayName: r.dest,
-          transit: 'MIA',
-          prices: { w100: laxSwap },
-          densityPrices: {},
-          remarks: [remark.join(' | ')],
-          ucMeta: { type: 'fullPrice', baseGW: 'MIA', normal: laxNormal, swap: laxSwap, miaUseSwap: true }
-        });
+      // MIA中转：路径PVG-LAX-MIA-XXX，仅直接MIA中转行生成（不经二次中转港）
+      // 价格用LAX价（实际经MIA），优先swap价，无swap用LAX普通价；应用手写版MIA-5
+      if (!hasSecondaryHub) {
+        const miaNormal = miaP ? miaP.normal : null;
+        const miaBasePrice = laxSwap !== null ? laxSwap : (laxNormal !== null ? laxNormal : miaNormal);
+        const miaOpenPrice = laxNormal !== null ? laxNormal : miaNormal;
+        if (miaBasePrice !== null) {
+          const routing = fixRouting('MIA');
+          const remark = baseRemark.slice();
+          if (routing) remark.unshift('路径:' + routing);
+          if (laxSwap !== null) remark.push('货机swap space价=' + laxSwap);
+          if (miaOpenPrice !== null) remark.push('货机开口价=' + miaOpenPrice);
+          out.push({
+            origin: 'PVG', dest: r.dest, displayName: r.dest,
+            transit: 'MIA',
+            prices: { w100: miaBasePrice },
+            densityPrices: {},
+            remarks: [remark.join(' | ')],
+            ucMeta: { type: 'fullPrice', baseGW: 'MIA', normal: miaOpenPrice, swap: laxSwap, miaUseSwap: laxSwap !== null, miaNormal: miaNormal, miaFromLAX: true }
+          });
+        }
       }
 
       // JFK中转：有价格且非pending时显示
@@ -2996,7 +3025,32 @@ function parseUCRateSheet(worksheet) {
     }
   });
 
-  return out;
+  // 合并同一目的港+同一中转点的GRU/SCL/LIM空转与卡转：主价用卡转价，备注显示空转价
+  const merged = [];
+  const seen = {};
+  out.forEach(item => {
+    if (!item.ucMeta || item.ucMeta.type !== 'hubAdd') { merged.push(item); return; }
+    const key = item.dest + '|' + item.transit + '|' + item.ucMeta.hub;
+    if (!seen[key]) { seen[key] = item; merged.push(item); return; }
+    const exist = seen[key];
+    const isTruckCur = item.ucMeta.gwType === 'truck';
+    const isTruckExist = exist.ucMeta.gwType === 'truck';
+    // 卡转作为主记录，保存空转运费到ucMeta（空转价在手写版更新时动态计算）
+    if (isTruckCur && !isTruckExist) {
+      // 当前是卡转，已有空转 → 保存空转运费，替换已有记录
+      item.ucMeta.airAdd = exist.ucMeta.add;
+      const idx = merged.indexOf(exist);
+      if (idx >= 0) merged[idx] = item;
+      seen[key] = item;
+    } else if (!isTruckCur && isTruckExist) {
+      // 当前是空转，已有卡转 → 保存空转运费到卡转记录
+      exist.ucMeta.airAdd = item.ucMeta.add;
+    } else {
+      merged.push(item);
+    }
+  });
+
+  return merged;
 }
 
 // ---------- UC文字版表价解析与更新 ----------
@@ -3198,6 +3252,11 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         newRow.prices = allPrices;
         newRow.densityPrices = dp;
         newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + meta.hub + '+' + meta.add + '(' + (meta.gwType === 'truck' ? '卡转' : '空转') + ')');
+        // 卡转记录有空转运费(airAdd)时，动态计算空转价=枢纽港新价格+airAdd
+        if (meta.gwType === 'truck' && meta.airAdd !== undefined) {
+          const airPrice = (hubPrices.w100 !== undefined ? hubPrices.w100 : Object.values(hubPrices)[0]) + meta.airAdd;
+          newRow.remarks.push('空转价=' + airPrice);
+        }
         updated = true;
       }
     } else if (meta.type === 'fullPrice') {
@@ -3217,12 +3276,10 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         const w100Adj = getAdj('w100');
         const normalW100 = normalBase + w100Adj;
         const swapW100 = swapBase !== null ? swapBase + w100Adj : null;
-        // MIA中转用swap价；LAX中转用普通价；AKL中转用最低价
+        // MIA中转用swap价；LAX/AKL中转用最低价（min(开口价, swap价)）
         const isMIA = meta.miaUseSwap === true || meta.baseGW === 'MIA' || r.transit === 'MIA';
-        const isLAX = meta.baseGW === 'LAX' || r.transit === 'LAX';
         let defaultW100;
         if (isMIA && swapW100 !== null) defaultW100 = swapW100;
-        else if (isLAX) defaultW100 = normalW100;
         else defaultW100 = swapW100 !== null ? Math.min(normalW100, swapW100) : normalW100;
         newRow.prices.w100 = defaultW100;
         // 比重档
@@ -3234,7 +3291,6 @@ function applyUCTextUpdate(baseRows, textUpdate) {
             const swapD = swapBase !== null ? swapBase + dAdj : null;
             let val;
             if (isMIA && swapD !== null) val = swapD;
-            else if (isLAX) val = normalD;
             else val = swapD !== null ? Math.min(normalD, swapD) : normalD;
             dp[k] = { w100: val };
           }
