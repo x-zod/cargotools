@@ -657,6 +657,15 @@ if (typeof ExcelJS === 'undefined') {
 
   <div class="card" style="padding:0;overflow:hidden">
     <div class="card-title" style="padding:14px 16px 0">已导入表价</div>
+    <div id="rateCategoryTabs" style="display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-primary rate-cat-tab" data-cat="all">全部</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="aa">AA</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="dl">DL</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="lh">LH</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="uc">UC</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="unified">统配</button>
+      <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="other">其他</button>
+    </div>
     <table class="mobile-cards">
       <thead>
         <tr>
@@ -2386,7 +2395,10 @@ $('importFile').addEventListener('change', (e) => {
         const rMap = {};
         curR.forEach(x => rMap[x.id] = x);
         rateSheets.forEach(x => { if (x.id && !rMap[x.id]) rMap[x.id] = x; });
-        saveRates(Object.values(rMap));
+        const mergedRates = Object.values(rMap);
+        // 恢复后自动过期：同一航司+中转点只保留最新生效日的表价
+        autoExpireRates(mergedRates);
+        saveRates(mergedRates);
       }
       // 合并优惠
       if (adjustments.length) {
@@ -3640,6 +3652,29 @@ $('btnCancelRate').addEventListener('click', () => {
   $('ratePreviewCard').style.display = 'none';
 });
 
+// 统一自动过期：同一航司+同一中转点，按生效日排序，只保留最新的未过期，其余自动标记过期
+function autoExpireRates(sheets) {
+  const groups = {};
+  sheets.forEach(s => {
+    if (s.expired === true) return;  // 已手动过期的不参与
+    const key = (s.airline || '') + '|' + (s.transit || '');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  });
+  let count = 0;
+  Object.values(groups).forEach(list => {
+    if (list.length <= 1) return;
+    // 按生效日降序排序，最新的保留，其余过期
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    for (let i = 1; i < list.length; i++) {
+      list[i].expired = true;
+      list[i].autoExpired = true;
+      count++;
+    }
+  });
+  return count;
+}
+
 $('btnSaveRate').addEventListener('click', () => {
   if (!parsedRows || !parsedRows.length) return;
   const airline = $('rateAirline').value.trim().toUpperCase();
@@ -3692,6 +3727,7 @@ $('btnSaveRate').addEventListener('click', () => {
     all.forEach(s => {
       if (s.airline === airline && (s.transit || '') === t && s.id !== sheet.id && s.expired !== true) {
         s.expired = true;
+        s.autoExpired = true;
         expiredCount++;
       }
     });
@@ -3746,11 +3782,22 @@ $('imgFile').addEventListener('change', (e) => {
 });
 
 // 牌价列表
+let _rateCategory = 'all';
+function classifyRate(s) {
+  const al = (s.airline || '').toUpperCase();
+  if (/^AA/.test(al) || al.includes('AA128') || al.includes('美国航空')) return 'aa';
+  if (/^DL/.test(al) || al.includes('达美')) return 'dl';
+  if (/^LH/.test(al) || al.includes('汉莎')) return 'lh';
+  if (/^UC/.test(al) || al.includes('LATAM') || al.includes('智利')) return 'uc';
+  if (al.includes('统配') || al.includes('传盛')) return 'unified';
+  return 'other';
+}
 function renderRateList() {
   const all = loadRates();
+  const filtered = _rateCategory === 'all' ? all : all.filter(s => classifyRate(s) === _rateCategory);
   const tbody = $('rateListBody');
-  $('rateListEmpty').style.display = all.length ? 'none' : 'block';
-  tbody.innerHTML = all.map(s => {
+  $('rateListEmpty').style.display = filtered.length ? 'none' : 'block';
+  tbody.innerHTML = filtered.map(s => {
     const adj = currentAdjFor(s.airline, s.transit);
     const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
     const today = todayStr();
@@ -3808,6 +3855,20 @@ function renderRateList() {
     });
   }
 }
+
+// 表价分类标签切换
+document.querySelectorAll('.rate-cat-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    _rateCategory = btn.dataset.cat;
+    document.querySelectorAll('.rate-cat-tab').forEach(b => {
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-ghost');
+    });
+    btn.classList.remove('btn-ghost');
+    btn.classList.add('btn-primary');
+    renderRateList();
+  });
+});
 
 // ---------- 临时调价：存储与逻辑 ----------
 const ADJ_KEY = 'af_adjustments_v1';
@@ -4825,6 +4886,8 @@ $('btnCloudSync').addEventListener('click', async () => {
   const mInq = mergeById(loadAll(), inq.data);
   const mRates = mergeById(loadRates(), rates.data, 'created_at');
   const mAdjs = mergeById(loadAdjs(), adjs.data, 'created_at');
+  // 同步后自动过期：同一航司+中转点只保留最新生效日的表价
+  const syncExpiredCount = autoExpireRates(mRates);
   saveAll(mInq); renderList();
   saveRates(mRates); renderRateList();
   saveAdjs(mAdjs); renderAdjList();
