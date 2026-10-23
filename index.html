@@ -4988,12 +4988,25 @@ $('btnSaveSync').addEventListener('click', () => {
 // 双向合并：按 id 合并本地与云端（本地优先保留现场，云端独有补入；含时间戳的取较新）
 function mergeById(localArr, cloudArr, timeKey) {
   const map = new Map();
-  (localArr || []).forEach(x => { if (x && x.id) map.set(x.id, x); });
-  (cloudArr || []).forEach(x => {
+  (cloudArr || []).forEach(x => { if (x && x.id) map.set(x.id, x); });
+  // CF中最新时间戳，用于判断本地独有的记录是"新增"还是"已删除"
+  let cloudMaxTime = 0;
+  if (timeKey) {
+    (cloudArr || []).forEach(x => { if (x && x[timeKey]) { const t = new Date(x[timeKey]).getTime(); if (t > cloudMaxTime) cloudMaxTime = t; } });
+  }
+  (localArr || []).forEach(x => {
     if (!x || !x.id) return;
     const exist = map.get(x.id);
-    if (!exist) { map.set(x.id, x); return; }
-    if (timeKey && exist[timeKey] && x[timeKey] && x[timeKey] > exist[timeKey]) map.set(x.id, x);
+    if (exist) {
+      // 两边都有，取较新的
+      if (timeKey && exist[timeKey] && x[timeKey] && x[timeKey] > exist[timeKey]) map.set(x.id, x);
+    } else if (timeKey) {
+      // CF里没有、本地有：时间比CF最新的还新→新增保留；否则→已删除不保留
+      if (x[timeKey] && new Date(x[timeKey]).getTime() > cloudMaxTime) map.set(x.id, x);
+    } else {
+      // 无时间戳（报价记录）：本地优先保留
+      map.set(x.id, x);
+    }
   });
   return Array.from(map.values());
 }
