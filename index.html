@@ -1085,11 +1085,11 @@ function parseText(text) {
   out.dest = (out.dest || '').toUpperCase().slice(0,3);
 
   // 体积 CBM（优先匹配带单位的）
-  m = t.match(/([\d.]+)\s*(CBM|cbm|方|立方米)/i);
+  m = t.match(/([\d.]+)\s*(CBM|cbm|立方米|方)/i);
   if (m) out.volume = m[1];
 
   // 紧凑件/重/体：件数+单位/毛重/体积（如 2PLTS/1160/1.13、8BOXES/164/0.22；件数可带 PLTS/BOXES 等单位，毛重/体积可无单位）
-  m = t.match(/(\d+)(?:[A-Za-z]{2,8})?\s*\/\s*([\d.,]+)\s*\/\s*(\d+(?:\.\d+)?)\b/);
+  m = t.match(/(\d+)(?:[A-Za-z]{2,8}|件|箱|托|盒|袋|桶)?\s*\/\s*([\d.,]+)\s*\/\s*(\d+(?:\.\d+)?)\b/);
   if (m) {
     if (!out.pieces) out.pieces = m[1];
     if (!out.weight) out.weight = m[2].replace(',', '.');
@@ -1103,7 +1103,7 @@ function parseText(text) {
     if (per > 0 && n > 0) out.weight = String(per * n);
   } else {
     // 普通毛重（兼容欧洲小数点格式 37,25 kgs / 239,50 kgs）
-    m = t.match(/([\d.,]+)\s*(KGS?|kgs?|公斤)/i);
+    m = t.match(/([\d.,]+)\s*(KGS?|kgs?|公斤|千克)/i);
     if (m) {
       let w = m[1];
       if (w.indexOf(',') >= 0 && /,\d{1,2}$/.test(w) && w.indexOf(',') === w.lastIndexOf(',')) w = w.replace(',', '.');
@@ -1124,7 +1124,9 @@ function parseText(text) {
     let dimL = m[1], dimW = m[2], dimH = m[3];
     if (m[4]) {
       const a = parseFloat(m[1]), d = parseFloat(m[4]);
-      if (m[4].includes('.') || d > a) {
+      const b = parseFloat(m[2]), c = parseFloat(m[3]);
+      // 第4维含小数点 或 第1维≤第4维 或 第1维<10且后三维都>10（小件数+大尺寸）→ 第1维是数量，尺寸取后三维
+      if (m[4].includes('.') || d > a || (a < 10 && b > 10 && c > 10 && d > 10)) {
         dimL = m[2]; dimW = m[3]; dimH = m[4];
         if (!out.pieces) out.pieces = m[1];
       } else {
@@ -2000,11 +2002,40 @@ function updateRateMatch() {
     } else {
       metaLine += m.remark ? (' · '+m.remark) : '';
     }
+    // 统配表价：显示各服务方案价格（散货/托盘成对显示，主价高亮）
+    let variantsLine = '';
+    if (m.variants && Object.keys(m.variants).length) {
+      // 按方案名分组（去掉"散货"/"托盘"后缀）
+      const groups = {};
+      const addToGroup = (label, price, isMain) => {
+        const base = label.replace(/(散货|托盘)$/, '');
+        const type = /托盘$/.test(label) ? 'pal' : 'bulk';
+        if (!groups[base]) groups[base] = { bulk: null, pal: null, isMain: false };
+        groups[base][type] = price;
+        if (isMain) groups[base].isMain = true;
+      };
+      if (m.service) addToGroup(m.service, m.final, true);
+      Object.keys(m.variants).forEach(lb => {
+        if (lb === m.service) return;
+        addToGroup(lb, m.variants[lb], false);
+      });
+      // 按散货价排序
+      const sorted = Object.entries(groups).sort((a, b) => (a[1].bulk ?? 9999) - (b[1].bulk ?? 9999));
+      variantsLine = '<div style="font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.7">' +
+        sorted.map(([name, g]) => {
+          const parts = [];
+          if (g.bulk !== null) parts.push(`散¥${g.bulk}`);
+          if (g.pal !== null) parts.push(`托¥${g.pal}`);
+          return `<span style="${g.isMain ? 'color:var(--green);font-weight:600' : ''}">${name} ${parts.join('/')}</span>`;
+        }).join(' · ') +
+        '</div>';
+    }
     return `
     <div class="similar-item" style="${m.final === finalMatches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
       <div class="similar-left">
         <div>${titleLine}</div>
         <div class="similar-meta">${metaLine}</div>
+        ${variantsLine}
       </div>
       <div class="similar-price">
         ¥${fmtPrice(m.final, m.pp, m.bare)}<small>/kg</small>
@@ -4148,9 +4179,11 @@ function parseUnifiedRateText(text) {
     const d3 = text.match(/[（(]?\s*(\d{1,2})\s*号\s*[)）]?/);
     if (d3) { const d = new Date(); date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d3[1]).padStart(2,'0')}`; }
   }
+  // 统配表价快速通道：有托盘/散货+价格，或有重托/重散/泡托/泡散，直接走统配表解析
+  const isUnified = /托盘\s*\d|散货\s*\d|重托|重散|泡托|泡散/.test(text);
 
   // ===== DL 经HNL 分组报价格式（裸运费） =====
-  if (/裸运费|平散\s*\d+\s*裸|\+45级/.test(text)) {
+  if (/裸运费|平散\s*\d+\s*裸|\+45级/.test(text) && !isUnified) {
     const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
     const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : date;
     const { tiers: dTiers, palCut: dPal } = parseHeavyTiers(text);
@@ -4199,7 +4232,7 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== AA 分组报价格式（经HNL）：美国本土点/墨西哥/南美 分组 + 目的港散价++ + 标托+4 + 重货 =====
-  if (/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text) && !/裸运费|平散\s*\d+\s*裸|\+45级|平散货|平托\s+\d|1[:：]\d+\s+\d|《1比/.test(text)) {
+  if (/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text) && !/裸运费|平散\s*\d+\s*裸|\+45级|平散货|平托\s+\d|1[:：]\d+\s+\d|《1比/.test(text) && !isUnified) {
     const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
     const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : date;
     const ports = {};
@@ -4250,7 +4283,7 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== OCR目的港+价格格式（AA interline等）：GRU 67 EZE 65 UIO 61 =====
-  if (/\b[A-Z]{3}\s+\d+(?:\.\d+)?\b/.test(text) && !/裸运费|美国本土点|平散|托盘|散货|重托|重散|泡托|泡散|1:\d+\s*\/\s*\d+/.test(text)) {
+  if (/\b[A-Z]{3}\s+\d+(?:\.\d+)?\b/.test(text) && !/裸运费|美国本土点|平散|托盘|散货|重托|重散|泡托|泡散|1:\d+\s*\/\s*\d+/.test(text) && !isUnified) {
     const wAll = ['w45','w100','w300','w500','w1000'];
     const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
     const portRe = /\b([A-Z]{3})\s+(\d+(?:\.\d+)?)/g;
@@ -4265,7 +4298,7 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== OCR比重档×重量档格式（LH等）：32 32 32 33 <1:80 / 平散货 35 35 35 36 =====
-  if (/(平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:)/.test(text) && /\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text)) {
+  if (/(平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:)/.test(text) && /\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text) && !/托盘\s+\d|1:\d+\s+\d/.test(text) && !isUnified) {
     const wAll = ['w45','w100','w300','w500','w1000'];
     const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
     // 清理OCR错误的比重标签（只做字符替换，不删内容）
@@ -4344,13 +4377,13 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== 散货/托盘并列格式（JL-YVR等）：散42 托盘44 卡车+1 =====
-  if (/散\s*\d+(?:\.\d+)?/.test(text) && /托盘\s*\d+(?:\.\d+)?/.test(text) && !/美国本土点|裸运费|平散货/.test(text)) {
+  if (/(^|\s)散\s*\d+(?:\.\d+)?/.test(text) && /托盘\s*\d+(?:\.\d+)?/.test(text) && !/美国本土点|裸运费|平散货|泡散|重散|重托|泡托/.test(text) && !isUnified) {
     const wAll = ['w45','w100','w300','w500','w1000'];
     // 提取散货价（取第一个）
-    const looseM = text.match(/散\s*(\d+(?:\.\d+)?)/);
+    const looseM = text.match(/(^|\s)散\s*(\d+(?:\.\d+)?)/);
     const palM = text.match(/托盘\s*(\d+(?:\.\d+)?)/);
     if (looseM && palM) {
-      const looseV = +looseM[1], palV = +palM[1];
+      const looseV = +looseM[2], palV = +palM[1];
       const dp = {};
       wAll.forEach(w => dp[w] = looseV);
       const densityDef = buildDensityDef([{key:'flat',flat:true}]);
@@ -4371,7 +4404,7 @@ function parseUnifiedRateText(text) {
   }
 
   // ===== 多港并列 + 共用比重阶梯（南美：GRU 1:300/500/800 50/48/46 平货 52；可含共享泡货段 1:140/120/100/80/60 48/46/44/40/38） =====
-  if (/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text)) {
+  if (/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text) && !isUnified) {
     const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
     const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
     const portRe = /\b([A-Z]{3})\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(?:平货|平散|平)?\s*[:：]?\s*(\d+(?:\.\d+)?)?/g;
@@ -4405,13 +4438,67 @@ function parseUnifiedRateText(text) {
   let segs = [];
   let m;
   while ((m = segRe.exec(text))) {
-    segs.push({ label: `${m[1]}-${m[2]}天`, start: m.index + m[0].length });
+    // 保留前缀（如"空空3-4天"）：向前找最近的空格，取空格后到m.index的内容
+    const prefixStart = Math.max(0, m.index - 10);
+    const prefixRaw = text.slice(prefixStart, m.index);
+    const lastSpace = prefixRaw.lastIndexOf(' ');
+    const prefixText = (lastSpace >= 0 ? prefixRaw.slice(lastSpace + 1) : prefixRaw).replace(/[A-Z]+/g, '').replace(/\d{1,2}月\d{1,2}号?/, '').trim();
+    const label = prefixText ? `${prefixText}${m[1]}-${m[2]}天` : `${m[1]}-${m[2]}天`;
+    segs.push({ label, start: m.index + m[0].length });
   }
+  // 额外匹配 "价格下调/更新/调整/生效/开始" 等通用价格块标题（后面必须跟着托盘/散货价格）
+  const genericRe = /价格(?:下调|更新|调整|生效|开始)/gi;
+  while ((m = genericRe.exec(text))) {
+    // 向前找最近的价格块（托盘/散货+数字），从数字后面开始提取label
+    const before = text.slice(Math.max(0, m.index - 120), m.index);
+    // 找到最后一个托盘/散货/重托/重散/泡托/泡散关键词
+    const kwMatch = before.match(/.*(托盘|散货|重托|重散|泡托|泡散)/);
+    let labelRaw = '';
+    if (kwMatch) {
+      const afterKw = before.slice(kwMatch.index + kwMatch[0].length);
+      // 找到日期位置（如"10月26号开始"），日期前面是价格，日期后面是label
+      const dateMatch = afterKw.match(/\d{1,2}月\d{1,2}号/);
+      if (dateMatch) {
+        // 从日期后面提取label
+        labelRaw = afterKw.slice(dateMatch.index + dateMatch[0].length).trim();
+      } else {
+        // 没有日期，取最后一个价格数字后面的内容
+        const nums = afterKw.match(/\d+(?:\.\d+)?/g) || [];
+        if (nums.length) {
+          const lastNum = nums[nums.length - 1];
+          const lastNumIdx = afterKw.lastIndexOf(lastNum);
+          labelRaw = afterKw.slice(lastNumIdx + lastNum.length).trim();
+        }
+      }
+    }
+    if (!labelRaw) labelRaw = before.slice(-30).trim();
+    // label中不能包含价格数字（避免匹配到通知标题或价格内容）
+    if (/\d+\s+\d+/.test(labelRaw)) continue;
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    // 找到after中第一个托盘/散货价格的位置
+    const firstPriceIdx = after.search(/托盘\s*\d|散货\s*\d/);
+    if (firstPriceIdx >= 0) {
+      // 托盘/散货前面不能有其他价格块标题（统配价格/X-Y天/服务）
+      const beforePrice = after.slice(0, firstPriceIdx);
+      if (/统配价格|\d+-\d+天|服务/.test(beforePrice)) continue;
+      let label = labelRaw;
+      label = label.replace(/^\d{1,2}月\d{1,2}号(?:开始|起)?/, '').trim();
+      label = label.replace(/^开始|^起/, '').trim();
+      label = label.replace(/\b[A-Z]{3}\b/g, '').trim();
+      label = label.replace(/上海直达|直达|方向|起|，|,/g, '').trim();
+      label = label.replace(/[-–—\s]+$/, '').trim();
+      if (!label) label = '其他';
+      segs.push({ label, start: m.index + m[0].length });
+    }
+  }
+  // 按start排序，去重（同一位置只保留一个）
+  segs.sort((a, b) => a.start - b.start);
+  segs = segs.filter((s, i) => i === 0 || s.start - segs[i-1].start > 5);
   segs.forEach((s, i) => {
     s.end = i < segs.length - 1 ? segs[i + 1].start : text.length;
     s.content = text.slice(s.start, s.end).trim();
   });
-  // 无 "X-Y天" 服务段标签时，把整段价格块作为单段（默认"统配"）
+  // 无服务段标签时，把整段价格块作为单段（默认"统配"）
   if (!segs.length) {
     segs = [{ label: '统配', start: 0, end: text.length, content: text }];
   }
@@ -4593,6 +4680,7 @@ $('btnParsePasted').addEventListener('click', () => {
     const text = $('pastedRate').value.trim();
     if (!text) { toast('请先粘贴表价文字'); return; }
     const res = parseUnifiedRateText(text);
+    console.log('[DEBUG parseUnifiedRateText]', JSON.stringify(res, null, 2));
     if (!res.dest || !res.ok || !res.rows.length) { toast('未能识别为统配表价（需含 托盘/散货 + 重托/重散/泡托/泡散），请用Excel导入或手动录入'); return; }
     // 行转工具结构：_densityDef 提升到表级供匹配
     const rows = res.rows.map(r => {
@@ -4684,6 +4772,12 @@ $('btnUCTextUpdate').addEventListener('click', () => {
       return sheet;
     });
     saveRates(allRates.concat(newSheets));
+    // 自动过期旧的UC手写版表价（同航司+中转点，只保留最新生效日）
+    const expiredCount = autoExpireRates(loadRates());
+    if (expiredCount > 0) {
+      saveRates(loadRates());
+      toast(`已自动过期 ${expiredCount} 张旧UC手写版表价`);
+    }
     renderRateList();
     $('pastedPreview').innerHTML = previewHtml + `<div style="font-size:13px;color:var(--green);margin-top:8px">✔ 已保存 ${newSheets.length} 张UC更新表价</div>`;
     toast(`✔ 已保存 ${newSheets.length} 张UC更新表价（生效${update.date}）`);
