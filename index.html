@@ -1703,21 +1703,24 @@ function lookupRateFor(dest, weight, volume) {
       }
     }
   }
-  // JL 卡转联动：目的港在 JL_CANADA_POOL 且非YVR时，用 JL-YVR 表价 + 卡转费
+  // JL 卡车二程联动：目的港在 JL_CANADA_POOL 且非YVR时，用 JL-YVR 基准价 + 卡车加价
   if (!best && qdn !== 'YVR' && JL_CANADA_POOL[qdn] !== undefined) {
-    const jl = sheets.find(s => {
-      const al = (s.airline||'').toUpperCase();
-      return !isExp(s) && al==='JL' && s.rows.some(r => normalizeDest(r.dest)==='YVR');
-    });
+    const jl = findJLYvrSheet(sheets, isExp);
     if (jl) {
       const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
       if (yvrRow) {
-        const jDk = (jl.densityDef && jl.densityDef.length) ? (matchDensityDef(jl.densityDef, ratio) || dk) : dk;
-        const p = priceFromRow(yvrRow, wk, jDk);
+        // JL-YVR 不分泡，二程只走平货价，不套基准比重档
+        const p = priceFromRow(yvrRow, wk, 'flat');
         if (p.base !== undefined) {
-          const fee = JL_CANADA_POOL[qdn];
-          const adj = (wk==='w45') ? 0 : currentAdjFor('JL', jl.transit);
-          best = { airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, jlCanada:true };
+          const truckFee = jlExtractTruckFee(yvrRow);
+          const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qdn];
+          const palDiff = jlExtractPalDiff(yvrRow, p);
+          const adj = (wk==='w45') ? 0 : currentAdjFor(jl.airline, jl.transit);
+          const bulkFinal = p.base + fee + adj;
+          const palFinal = palDiff > 0 ? p.base + palDiff + fee + adj : null;
+          best = { airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, density:p.density, jlCanada:true, palDiff, truckFee,
+            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null, service:'散货',
+            remark: `YVR卡转${palDiff>0?('；托盘+'+palDiff):''}` };
         }
       }
     }
@@ -1794,6 +1797,7 @@ function updateRateMatch() {
         const final = base + adj;
         // 统配参考价：主价=3-4天散货；variants 取各参考档（3-4天托盘/1-2天散货/1-2天托盘）同档价
         let vRefs = null;
+        let entryService = r.service || null;
         if (r.variants) {
           vRefs = {};
           Object.keys(r.variants).forEach(lb => {
@@ -1805,6 +1809,17 @@ function updateRateMatch() {
             } else if (v.prices) vp = v.prices[effectiveWk];
             if (vp !== undefined) vRefs[lb] = vp + adj;
           });
+        }
+        // 备注兜底：remark 标注“托盘+N”且 variants 未提供托盘价时，按散价+托盘差价补托盘变体（不覆盖已有托盘价；不识别“标托”）
+        {
+          const remarkText = [r.remark, ...(r.remarks || [])].join('；');
+          const pdM = remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+          if (pdM && !(vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k)))) {
+            vRefs = vRefs || {};
+            const palLabel = entryService && /散货$/.test(entryService) ? entryService.replace(/散货$/, '托盘') : '托盘';
+            vRefs[palLabel] = base + (+pdM[1]) + adj;
+            if (!entryService) entryService = '散货'; // 主价即散货，保证散/托同组成对显示
+          }
         }
         // 从remark中提取UC路径和特殊备注
         const fullRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
@@ -1819,7 +1834,7 @@ function updateRateMatch() {
         matches.push({
           airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: effectiveWk,
           base, final, adj, matchedDest: (r.dest||'').trim(),
-          density: densityUsed, remark: fullRemark, variants: vRefs, service: r.service || null,
+          density: densityUsed, remark: fullRemark, variants: vRefs, service: entryService,
           pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType
         });
       } else {
@@ -1892,21 +1907,24 @@ function updateRateMatch() {
     }
   }
 
-  // JL 卡转联动：目的港在 JL_CANADA_POOL 且非YVR时附加联动条目（用 JL-YVR 表价 + 卡转费）
+  // JL 卡车二程联动：目的港在 JL_CANADA_POOL 且非YVR时附加联动条目（JL-YVR 基准价 + 卡车加价，散/托并列）
   if (JL_CANADA_POOL[qd] !== undefined && qd !== 'YVR') {
-    const jl = sheets.find(s => {
-      const al = (s.airline||'').toUpperCase();
-      return !isSheetExpired(s) && al==='JL' && s.rows.some(r => normalizeDest(r.dest)==='YVR');
-    });
+    const jl = findJLYvrSheet(sheets, isSheetExpired);
     if (jl) {
       const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
       if (yvrRow) {
-        const jDk = (jl.densityDef && jl.densityDef.length) ? (matchDensityDef(jl.densityDef, densityRatio) || dk) : dk;
-        const p = priceFromRow(yvrRow, wk, jDk);
+        // JL-YVR 不分泡，二程只走平货价
+        const p = priceFromRow(yvrRow, wk, 'flat');
         if (p.base !== undefined) {
-          const fee = JL_CANADA_POOL[qd];
-          const adj = (wk==='w45') ? 0 : currentAdjFor('JL', jl.transit);
-          matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:`JL-YVR卡转+${fee}`, jlCanada:true, service:null });
+          const truckFee = jlExtractTruckFee(yvrRow);
+          const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qd];
+          const palDiff = jlExtractPalDiff(yvrRow, p);
+          const adj = (wk==='w45') ? 0 : currentAdjFor(jl.airline, jl.transit);
+          const bulkFinal = p.base + fee + adj;
+          const palFinal = palDiff > 0 ? p.base + palDiff + fee + adj : null;
+          matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density,
+            matchedDest: qd, remark:`YVR卡转${palDiff>0?('；托盘+'+palDiff):''}`, jlCanada:true, service:'散货',
+            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null });
         }
       }
     }
@@ -2535,11 +2553,48 @@ const DL_DEST_POOL = {
   'BOG':1,'EZE':1,'GIG':1,'GRU':1,'GUA':1,'LIM':1,'NAS':1,'PTY':1,'SAL':1,'SAP':1,'SCL':1,'SDQ':1,'SJO':1,'SJU':1,'UIO':1,'CUN':1,'MEX':1,'PUJ':1,'STI':1
 };
 
-// JL 经YVR 加拿大目的港池：YVR直飞；YYT/YUL/YHZ/YYC/YYZ/YEG/YWG/YHM 卡转+1
+// JL 经YVR 加拿大目的港池：YVR直飞；YYT/YUL/YHZ/YYC/YYZ/YEG/YWG/YHM 卡车二程
+// 池子只记成员与默认卡车费；实际卡车加价优先取基准行备注里的"卡车+N"，取不到再回退默认值
 const JL_CANADA_POOL = {
   'YVR': 0,  // 直飞
   'YYT': 1, 'YUL': 1, 'YHZ': 1, 'YYC': 1, 'YYZ': 1, 'YEG': 1, 'YWG': 1, 'YHM': 1
 };
+
+// 从基准行备注提取卡车加价（元/kg）；识别不到返回 null
+function jlExtractTruckFee(row) {
+  const txt = [row.remark, ...(row.remarks || [])].join(' ');
+  const m = txt.match(/卡车\s*\+?\s*(\d+(?:\.\d+)?)/);
+  return m ? +m[1] : null;
+}
+// 从基准行提取托盘差价（托盘绝对价 - 散货基准价）；识别不到返回 0
+function jlExtractPalDiff(row, p) {
+  const txt = [row.remark, ...(row.remarks || [])].join(' ');
+  const m = txt.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+  if (m) return +m[1];
+  if (row.variants && p && p.base !== undefined) {
+    for (const lb of Object.keys(row.variants)) {
+      const v = row.variants[lb];
+      let vp;
+      if (v && v.densityPrices) {
+        const dp = v.densityPrices.flat || v.densityPrices[Object.keys(v.densityPrices)[0]];
+        if (dp) vp = dp[p.weightKey] ?? dp.w100;
+      } else if (v && v.prices) {
+        vp = v.prices[p.weightKey] ?? v.prices.w100;
+      }
+      if (vp !== undefined && vp > p.base) return Math.round((vp - p.base) * 100) / 100;
+    }
+  }
+  return 0;
+}
+// 定位 JL-YVR 基准表：航司为 JL（兼容"JL加拿大"等写法）或中转点含 YVR，且含 YVR 行、未过期
+function findJLYvrSheet(sheets, isExpFn) {
+  return sheets.find(s => {
+    if (!s.rows || isExpFn(s)) return false;
+    const al = (s.airline || '').toUpperCase();
+    const okAirline = al === 'JL' || /^JL/.test(al) || /YVR/.test((s.transit || '').toUpperCase());
+    return okAirline && s.rows.some(r => normalizeDest(r.dest) === 'YVR');
+  });
+}
 
 // ---------- 航司表价：存储 ----------
 const RATE_KEY = 'af_rate_sheets_v1';
@@ -4384,19 +4439,22 @@ function parseUnifiedRateText(text) {
     }
   }
 
-  // ===== 散货/托盘并列格式（JL-YVR等）：散42 托盘44 卡车+1 =====
+  // ===== 散货/托盘并列格式（JL-YVR等）：散48 托盘53 卡车+1 =====
   if (/(^|\s)散\s*\d+(?:\.\d+)?/.test(text) && /托盘\s*\d+(?:\.\d+)?/.test(text) && !/美国本土点|裸运费|平散货|泡散|重散|重托|泡托/.test(text) && !isUnified) {
-    const wAll = ['w45','w100','w300','w500','w1000'];
-    // 提取散货价（取第一个）
+    // 重量档：45KG 单议不自动填价，仅填 100/300/500/1000 四档
+    const wKeys = ['w100','w300','w500','w1000'];
+    // 提取散货价（取第一个）、托盘价、卡车加价
     const looseM = text.match(/(^|\s)散\s*(\d+(?:\.\d+)?)/);
     const palM = text.match(/托盘\s*(\d+(?:\.\d+)?)/);
+    const truckM = text.match(/卡车\s*\+?\s*(\d+(?:\.\d+)?)/);
     if (looseM && palM) {
       const looseV = +looseM[2], palV = +palM[1];
       const dp = {};
-      wAll.forEach(w => dp[w] = looseV);
+      wKeys.forEach(w => dp[w] = looseV);
       const densityDef = buildDensityDef([{key:'flat',flat:true}]);
       const densityPrices = { flat: dp };
       const palDiff = palV - looseV;
+      const truckFee = truckM ? +truckM[1] : null;
       // 目的港：从标题提取（JL-YVR → YVR）
       let dest = '未知';
       const titleM = rawText.match(/[A-Z]{2}\s*[-–—]\s*([A-Z]{3})/);
@@ -4405,8 +4463,10 @@ function parseUnifiedRateText(text) {
         const codes = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !['PVG','SHA','HKG','ETD','ETA'].includes(c));
         if (codes.length) dest = codes[0];
       }
-      const remark = palDiff > 0 ? `托盘+${palDiff}` : '';
-      const row = { dest, densityDef, densityPrices, service: '散货', remark };
+      const remarkParts = [];
+      if (palDiff > 0) remarkParts.push(`托盘+${palDiff}`);
+      if (truckFee != null) remarkParts.push(`卡车+${truckFee}`);
+      const row = { dest, densityDef, densityPrices, service: '散货', remark: remarkParts.join('；'), palDiff: palDiff > 0 ? palDiff : 0, truckFee };
       return { dest, date, ok: true, rows: [row] };
     }
   }
