@@ -1062,7 +1062,7 @@ function smartComma(text) {
 function parseText(text) {
   // 预处理：去千分位/小数点逗号
   let t = ' ' + smartComma(text) + ' ';
-  const out = { dest:'', pieces:'', weight:'', volume:'', dims:'' };
+  const out = { dest:'', pieces:'', weight:'', volume:'', dims:'', remark:'' };
 
   // 目的港：优先 AAA--BBB / AAA-BBB / AAA/BBB 航线格式，取BBB
   let m = t.match(/\b([A-Za-z]{3})\s*[-\/]{1,2}\s*([A-Za-z]{3})\b/);
@@ -1097,23 +1097,37 @@ function parseText(text) {
   }
 
   // 毛重 KG：优先识别"单件重×件数"算出总重（如 15公斤*6件 = 90kg）
-  m = t.match(/([\d.]+)\s*(?:公斤|千克|kg|kgs)\s*[*xX×]\s*(\d+)\s*(?:件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|pakg(?:s|es)?|paks?|(?:wooden\s*)?box(?:es)?|cases?|bags?|drums?|托|箱|盒)/i);
+  m = t.match(/([\d.]+)\s*(?:公斤|千克|kg|kgs)\s*[*xX×]\s*(\d+)\s*(?:件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|pakg(?:s|es)?|paks?|box(?:es)?|cases?|bags?|drums?|crates?|托|箱|盒)/i);
   if (m) {
     const per = parseFloat(m[1]), n = parseInt(m[2], 10);
     if (per > 0 && n > 0) out.weight = String(per * n);
   } else {
-    // 普通毛重（兼容欧洲小数点格式 37,25 kgs / 239,50 kgs）
-    m = t.match(/([\d.,]+)\s*(KGS?|kgs?|公斤|千克)/i);
+    // 普通毛重（兼容欧洲小数点格式 37,25 kgs / 239,50 kgs）；数字必须以数字开头，避免吞进前导逗号
+    m = t.match(/(\d[\d.,]*)\s*(KGS?|kgs?|公斤|千克)/i);
     if (m) {
-      let w = m[1];
+      let w = m[1].replace(/^,+|,+$/g, '');
       if (w.indexOf(',') >= 0 && /,\d{1,2}$/.test(w) && w.indexOf(',') === w.lastIndexOf(',')) w = w.replace(',', '.');
       out.weight = w;
     }
   }
 
-  // 件数：数字+件/pcs/ctns/cartons/pallets/plts/pkgs/packages/cases/bags/drums/托/箱（含 wooden boxes）
-  m = t.match(/(\d+)\s*(件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|pakg(?:s|es)?|paks?|(?:wooden\s*)?box(?:es)?|cases?|bags?|drums?|fiber\s*drums?|托|箱|盒)/i);
+  // 件数：数字+(可选wooden)+件/pcs/ctns/cartons/pallets/plts/pkgs/packages/cases/bags/drums/crates/托/箱
+  m = t.match(/(\d+)\s*(?:wooden\s*)?(件|pcs|ctns?|cartons?|pallets?|plts?|pkgs?|packages?|pakg(?:s|es)?|paks?|box(?:es)?|cases?|bags?|drums?|crates?|fiber\s*drums?|托|箱|盒)/i);
   if (m) out.pieces = m[1];
+
+  // 包装方式：wooden crates / cartons / pallets / boxes / cases / bags / drums → 中文包装名进备注（去重保序；数字连写不加前词边界）
+  {
+    const packParts = [];
+    const pushPack = (zh) => { if (zh && !packParts.includes(zh)) packParts.push(zh); };
+    if (/(?:wooden\s+)?crates?/i.test(t)) pushPack('木箱');
+    else if (/(?:wooden\s+)?boxes?/i.test(t)) pushPack('木箱');
+    if (/cartons?|ctns?/i.test(t)) pushPack('纸箱');
+    if (/pallets?|plts?/i.test(t)) pushPack('托盘');
+    if (/cases?/i.test(t)) pushPack('箱');
+    if (/bags?/i.test(t)) pushPack('袋');
+    if (/fiber\s*drums?|drums?/i.test(t)) pushPack('桶');
+    if (packParts.length) out.remark = packParts.join('；');
+  }
 
   // 尺寸：数字*数字*数字（可能后面跟件数 如 110*75*75*3，或数量×L×W×H 如 2 x 50 x 34 x 16.5）
   m = t.match(/(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*(?:[*xX×]\s*(\d+(?:\.\d+)?))?/i);
@@ -1376,6 +1390,7 @@ $('btnParse').addEventListener('click', () => {
     $('fWeight').value = p.weight;
     $('fVolume').value = p.volume;
     $('fDims').value = p.dims;
+    $('fRemark').value = p.remark || '';
     if (!$('fDate').value) $('fDate').value = todayStr();
     $('parsedCard').style.display = 'block';
     updateCalcBox();
@@ -1410,7 +1425,7 @@ $('btnParse').addEventListener('click', () => {
             <td><input value="${p.volume}" data-i="${i}" data-k="volume" style="padding:6px 8px"></td>
             <td><input value="${p.dims}" data-i="${i}" data-k="dims" style="padding:6px 8px"></td>
             <td><input value="" data-i="${i}" data-k="customer" style="padding:6px 8px" placeholder="可选"></td>
-            <td><input value="" data-i="${i}" data-k="remark" style="padding:6px 8px" placeholder="可选"></td>
+            <td><input value="${esc(p.remark || '')}" data-i="${i}" data-k="remark" style="padding:6px 8px" placeholder="可选"></td>
             <td style="font-size:12px;vertical-align:middle">${rt?`<span style="color:var(--green);font-weight:700">${rt.airline} ¥${fmtNum(rt.final,2)}</span>`:'<span style="color:var(--text-3)">—</span>'}</td>
             <td style="font-size:12px;color:var(--text-2);vertical-align:middle">${ot?`<span style="color:var(--accent);font-weight:600">${ot.supplier||'外配'} ¥${fmtNum(ot.price,2)}</span>`:'<span style="color:var(--text-3)">—</span>'}</td>
           </tr>`;
@@ -1810,9 +1825,11 @@ function updateRateMatch() {
             if (vp !== undefined) vRefs[lb] = vp + adj;
           });
         }
+        // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价，绑定在命中比重档上）
+        const tierNote = (r.densityPrices && densityUsed && r.densityPrices[densityUsed] && r.densityPrices[densityUsed].note) || '';
         // 备注兜底：remark 标注“托盘+N”且 variants 未提供托盘价时，按散价+托盘差价补托盘变体（不覆盖已有托盘价；不识别“标托”）
         {
-          const remarkText = [r.remark, ...(r.remarks || [])].join('；');
+          const remarkText = [r.remark, ...(r.remarks || []), tierNote].join('；');
           const pdM = remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
           if (pdM && !(vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k)))) {
             vRefs = vRefs || {};
@@ -1821,8 +1838,28 @@ function updateRateMatch() {
             if (!entryService) entryService = '散货'; // 主价即散货，保证散/托同组成对显示
           }
         }
-        // 从remark中提取UC路径和特殊备注
-        const fullRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
+        // 相邻比重档参考价：命中档前后各一档同重量档价格，供客户数据不准时参考
+        let neighborNote = '';
+        const densityDefUsed = r._densityDef || s.densityDef;
+        if (densityDefUsed && densityDefUsed.length > 1 && densityUsed && r.densityPrices && r.densityPrices[densityUsed]) {
+          const di = densityDefUsed.findIndex(d => d.key === densityUsed);
+          if (di >= 0) {
+            const nbrParts = [];
+            [di - 1, di + 1].forEach(ni => {
+              if (ni < 0 || ni >= densityDefUsed.length) return;
+              const nk = densityDefUsed[ni].key;
+              const ndp = r.densityPrices[nk];
+              if (!ndp) return;
+              const np = (ndp[effectiveWk] !== undefined ? ndp[effectiveWk] : ndp[wk]);
+              if (np === undefined) return;
+              nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + adj, r.pp, r.bare)}`);
+            });
+            if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
+          }
+        }
+        // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注 → 相邻档参考
+        const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
+        const fullRemark = [portRemark, tierNote, neighborNote].filter(Boolean).join('；');
         let routing = '';
         let ucNote = '';
         const rm = fullRemark.match(/路径:([^|]+)/);
@@ -3491,16 +3528,19 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
     return String(cell.value).trim();
   }
 
-  // 找表头行
+  // 找表头行：必须含 DESTINATION；ORIGIN 可选（LH 传统配新版式只有 DEST 列），另一维由 ORIGIN 或重量档列名判定
   let headerIdx = -1;
   let headers = [];
   for (let i = 0; i < Math.min(grid.length, 20); i++) {
     const r = grid[i].map(c => cellText(c).toUpperCase());
-    if (r.some(c => c.includes('ORIGIN')) && r.some(c => c.includes('DEST'))) {
+    const hasDest = r.some(c => c.includes('DEST'));
+    const hasOrigin = r.some(c => c.includes('ORIGIN'));
+    const hasWeight = r.some(c => /^(45|100|300|500|1000)\s*KG/.test(c));
+    if (hasDest && (hasOrigin || hasWeight)) {
       headerIdx = i; headers = r; break;
     }
   }
-  if (headerIdx < 0) throw new Error('没找到表头行（需要含 ORIGIN 和 DESTINATION）');
+  if (headerIdx < 0) throw new Error('没找到表头行（需要含 DESTINATION 列）');
 
   const col = {};
   headers.forEach((h, i) => {
@@ -3513,6 +3553,7 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
     else if (/^300\s*KG/.test(h)) col.w300 = i;
     else if (/^500\s*KG/.test(h)) col.w500 = i;
     else if (/^1000\s*KG/.test(h) || h.includes('1000')) col.w1000 = i;
+    else if (h.includes('T/T')) col.density = i;
     else if (h.includes('REMARK') || h.includes('NOTE')) col.remark = i;
   });
   if (col.dest === undefined) throw new Error('没找到目的港列');
@@ -3534,11 +3575,38 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
   const merged = {};
   let lastDestKey = null; // 比重行挂到上一个目的港
 
+  // LH 传统配新版式：无 ORIGIN 列、比重档在独立 T/T 列，目的港写在合并标题"PVG-MUC/FRA 传统配"里
+  const lhName = (worksheet.name || '').toUpperCase();
+  const isLhNewLayout = (col.origin === undefined) && (col.density !== undefined) && /LH/.test(lhName);
+  let sheetDestCandidates = [];
+  let sheetDate = '';
+  if (isLhNewLayout) {
+    const src = [];
+    for (let i = 0; i < headerIdx; i++) { const t = cellText(grid[i][col.dest]); if (t) src.push(t); }
+    const fr = grid[headerIdx + 1];
+    if (fr) { const t = cellText(fr[col.dest]); if (t) src.push(t); }
+    src.push(worksheet.name || '');
+    const codeSkip = new Set(['PVG','DEST','ORIG','REM','T/T','CUR','KG','HUB','THE','AND','VIA','NRT']);
+    const codes = (src.join(' ') + ' ').match(/\b[A-Z]{3}\b/g) || [];
+    sheetDestCandidates = [...new Set(codes.map(c => c.toUpperCase()).filter(c => !codeSkip.has(c)))];
+    // 生效日：仅取带"启用"后缀的日期（如 10/25启用）；"价格有效期11/1"只进备注
+    const nowY = new Date().getFullYear();
+    grid.forEach(r => r.forEach(c => {
+      const t = cellText(c);
+      if (!t) return;
+      const dm = t.match(/(\d{1,2})[\/月](\d{1,2})日?\s*启用/);
+      if (dm && !sheetDate) sheetDate = `${nowY}-${String(dm[1]).padStart(2,'0')}-${String(dm[2]).padStart(2,'0')}`;
+    }));
+  }
+
   for (let i = headerIdx + 1; i < grid.length; i++) {
     const row = grid[i];
     const destCell = row[col.dest];
     const rawDest = cellText(destCell);
-    if (!rawDest || /^(TOTAL|合计|小计)/i.test(rawDest)) continue;
+    const densityCell = col.density !== undefined ? row[col.density] : destCell;
+    const densityRaw = cellText(densityCell);
+    if (!isLhNewLayout && (!rawDest || /^(TOTAL|合计|小计)/i.test(rawDest))) continue;
+    if (isLhNewLayout && !rawDest && !densityRaw) continue;
 
     // 识别比重行：DESTINATION 是比重标签（泡档 / 重档 / 平档）
     // 泡档：<1:80、≤1:80、1:80（裸泡档）、1:150-（旧格式）
@@ -3547,21 +3615,30 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
     let densityInfo = null;
     {
       let m;
-      if ((m = rawDest.match(/^1\s*:\s*(\d+)\s*[+-]/))) {          // 旧格式：1:200+（重）/ 1:150-（泡）
+      if ((m = densityRaw.match(/^1\s*[：:比]\s*(\d+)\s*[+-]/))) {          // 旧格式：1:200+（重）/ 1:150-（泡）
         const n = parseInt(m[1]);
-        densityInfo = rawDest.includes('-')
+        densityInfo = densityRaw.includes('-')
           ? { key: '1:' + n + '-', max: n }
           : { key: '1:' + n + '+', min: n };
-      } else if ((m = rawDest.match(/^(?:[<≤])\s*1\s*:\s*(\d+)/))) { // 泡档：<1:80 / ≤1:80
+      } else if ((m = densityRaw.match(/^(?:[<≤])\s*1\s*[：:比]\s*(\d+)/))) { // 泡档：<1:80 / ≤1:80 / <1比80
         densityInfo = { key: '<1:' + m[1], max: parseInt(m[1]) };
-      } else if ((m = rawDest.match(/^[>≥]\s*1\s*:\s*(\d+)/))) {     // 重档：>1:200 / ≥1:200
+      } else if ((m = densityRaw.match(/^[>≥]\s*1\s*[：:比]\s*(\d+)/))) {     // 重档：>1:200 / ≥1:200
         densityInfo = { key: '1:' + m[1] + '+', min: parseInt(m[1]) };
-      } else if ((m = rawDest.match(/^1\s*:\s*(\d+)/))) {            // 裸 1:80 → 泡档（LH 语义）
+      } else if ((m = densityRaw.match(/^1\s*[：:比]\s*(\d+)/))) {            // 裸 1:80 → 泡档（LH 语义）
         densityInfo = { key: '<1:' + m[1], max: parseInt(m[1]) };
-      } else if (/平散货|平货|^平$/.test(rawDest)) {
+      } else if (/平散|平货|^平$/.test(densityRaw)) {
         densityInfo = { key: 'flat', flat: true };
       }
     }
+
+    // 档位附加说明：括号内备注（如 <1比80(不大于6方)）；5/5 代表 55 分泡
+    const rowExtraNotes = [];
+    {
+      const bm = densityRaw.match(/[（(]([^）)]+)[）)]/);
+      if (bm && bm[1].trim()) rowExtraNotes.push(bm[1].trim());
+      if (/5\s*\/\s*5/.test(densityRaw)) rowExtraNotes.push('55分泡');
+    }
+    const rowExtraNote = rowExtraNotes.join('；');
 
     // 按字体颜色取价格（只取黑/红字；灰字忽略）
     const prices = {};
@@ -3578,6 +3655,36 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
         const vk = rawDest.toUpperCase().replace(/\s+/g, ' ').trim();
         if (!merged[vk]) merged[vk] = { origin: col.origin !== undefined ? cellText(row[col.origin]).toUpperCase() : '', dest: vk, displayName: rawDest, transit: transit || '', prices: {}, densityPrices: {}, remarks: [] };
       }
+      // 仅 LH 表：目的港基准行价格列留空、价格在后续比重行（如 LH1101 MUC/FRA），不跳过，继续建行挂备注
+      if (!/LH/.test(lhName) || !/^[A-Za-z]{3}/.test(rawDest.trim())) continue;
+    }
+
+    // LH 传统配新版式：每行都是比重档，挂到 sheet 级目的港候选（MUC/FRA），不依赖上一目的港行
+    if (isLhNewLayout && sheetDestCandidates.length) {
+      const baseRemark = col.remark !== undefined ? cellText(row[col.remark]) : '';
+      // 档级加价备注（托盘+N布卷+N、不大于6方、55分泡）绑定到对应比重档；非比重行的通用备注才留港级
+      const tierNote = [baseRemark, rowExtraNote].filter(Boolean).join('；');
+      sheetDestCandidates.forEach(vd => {
+        const vKey = vd.toUpperCase();
+        if (!merged[vKey]) {
+          merged[vKey] = { origin: 'PVG', dest: vKey, displayName: vd, transit: transit || '', prices: {}, densityPrices: {}, remarks: [] };
+        }
+        const rec = merged[vKey];
+        // 平货档价格同时作为基准 prices（供无比重档/小货回退）
+        if (densityInfo && densityInfo.flat) {
+          weightCols.forEach(k => { if (prices[k] !== undefined && rec.prices[k] === undefined) rec.prices[k] = prices[k]; });
+        }
+        if (densityInfo) {
+          const dKey = densityInfo.key;
+          if (!rec.densityPrices[dKey]) rec.densityPrices[dKey] = {};
+          weightCols.forEach(k => { if (prices[k] !== undefined) rec.densityPrices[dKey][k] = prices[k]; });
+          if (tierNote) rec.densityPrices[dKey].note = tierNote;
+          if (!rec._densityParts) rec._densityParts = [];
+          if (!rec._densityParts.some(p => p.key === dKey)) rec._densityParts.push(densityInfo);
+        } else if (baseRemark && !rec.remarks.includes(baseRemark)) {
+          rec.remarks.push(baseRemark);
+        }
+      });
       continue;
     }
 
@@ -3590,6 +3697,12 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
       weightCols.forEach(k => {
         if (prices[k] !== undefined) rec.densityPrices[dKey][k] = prices[k];
       });
+      // 档级备注（括号说明、55分泡）绑定到该比重档
+      if (rowExtraNote) rec.densityPrices[dKey].note = rowExtraNote;
+      // 平货档价格同时作为基准 prices（供无比重档/小货回退）
+      if (densityInfo.flat) {
+        weightCols.forEach(k => { if (prices[k] !== undefined && rec.prices[k] === undefined) rec.prices[k] = prices[k]; });
+      }
       // 记录比重档边界，用于构建该表自己的比重阶梯 densityDef
       if (!rec._densityParts) rec._densityParts = [];
       if (!rec._densityParts.some(p => p.key === dKey)) rec._densityParts.push(densityInfo);
@@ -3645,15 +3758,23 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
           rec.prices[k] = prices[k];
         }
       });
-      const remark = truckList ? `卡车班次:${truckList[di].days}` : (col.remark !== undefined ? cellText(row[col.remark]) : '');
+      const baseRemark = truckList ? `卡车班次:${truckList[di].days}` : (col.remark !== undefined ? cellText(row[col.remark]) : '');
+      const remark = [baseRemark, rowExtraNote].filter(Boolean).join('；');
       if (remark && !rec.remarks.includes(remark)) rec.remarks.push(remark);
       lastDestKey = vKey; // 记录当前目的港，供后面比重行挂载
     });
   }
 
   const out = Object.values(merged);
+  if (sheetDate) out.sheetDate = sheetDate;
   out.forEach(r => {
-    r.remark = r.remarks.join('；');
+    const parts = [];
+    (r.remarks || []).forEach(x => String(x).split('；').forEach(p => {
+      p = p.trim();
+      if (p && !parts.includes(p)) parts.push(p);
+    }));
+    r.remarks = parts;
+    r.remark = parts.join('；');
     if (r._densityParts && r._densityParts.length) {
       r._densityDef = buildDensityDef(r._densityParts);
       delete r._densityParts;
@@ -3664,8 +3785,32 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
   if (col.remark !== undefined) {
     let headNote = cellText(grid[headerIdx][col.remark]) || '';
     headNote = headNote.replace(/\s+/g, ' ').trim();
+    if (/^(REMARK|NOTE|备注)$/i.test(headNote)) headNote = '';
     if (/^日本方向转运南美/.test(headNote)) headNote = headNote.replace(/^日本方向转运南美\s*/, '').trim();
     if (headNote) out.sheetRemark = headNote;
+  }
+  // LH 传统配新版式：收集右侧红字说明（高度超限/计费重超限/有效期）与底部补充行（MIN +100KG、启用日期）
+  if (isLhNewLayout) {
+    const mappedCols = new Set([col.dest, col.density, col.remark, ...weightCols.map(k => col[k])]);
+    const notes = [];
+    grid.forEach((r, ri) => r.forEach((c, ci) => {
+      const t = cellText(c);
+      if (!t) return;
+      // 真实价格单元格是数值；"+100KG"/"MIN" 等文本不计价格，归入补充说明行
+      const hasPrice = weightCols.some(k => col[k] !== undefined && typeof r[col[k]].value === 'number' && !isNaN(r[col[k]].value));
+      if (!mappedCols.has(ci)) {
+        // 右侧非映射列：只收说明性文本，排除标题/列名
+        if (!(/[一-龥]|MIN|有效期|启用/.test(t))) return;
+        if (/上海|传统配|PVG|DEST|REMARK|T\/T/.test(t)) return;
+        if (!notes.includes(t)) notes.push(t);
+      } else if (!hasPrice && ri > headerIdx) {
+        // 档标签行之后、无价格的补充行：MIN、+100KG 等最低计费说明；启用日期已由 sheetDate 承载，不重复进备注
+        if (/[一-龥]|MIN|\+100KG/.test(t) && !/启用/.test(t) && !/^\d+(\.\d+)?$/.test(t) && !/平散|平货|1\s*[：:比]/.test(t) && !/PVG|传统配|MUC|FRA/.test(t)) {
+          if (!notes.includes(t)) notes.push(t);
+        }
+      }
+    }));
+    if (notes.length) out.sheetRemark = (out.sheetRemark ? out.sheetRemark + '；' : '') + notes.join('；');
   }
   // 经HND（上海AA）：同目的港有 viaNRT 行时纯直航无效；归一 dest 并把各档合并一行
   if (transit === '经HND') { const m = mergeHNDRows(out); m.sheetRemark = out.sheetRemark; return m; }
@@ -3728,6 +3873,7 @@ $('excelFile').addEventListener('change', async (e) => {
           rows.forEach(r => { r.transit = t; });
         }
         if (rows.sheetRemark) sheetRemarks[t] = rows.sheetRemark;
+        if (rows.sheetDate) sheetRemarks.__date = rows.sheetDate;
         allRows = allRows.concat(rows);
       } catch(err) {
         // 某个sheet解析失败（比如没有表头），跳过
@@ -3739,6 +3885,7 @@ $('excelFile').addEventListener('change', async (e) => {
     // 按文件名/sheet 名自动识别航司，填入航司输入框
     const det = detectAirlineFromExcel(f.name, workbook);
     if (det && $('rateAirline')) $('rateAirline').value = det;
+    if (sheetRemarks.__date && $('rateDate') && !$('rateDate').value) $('rateDate').value = sheetRemarks.__date;
     showRatePreview(parsedRows);
     toast(`识别到 ${parsedRows.length} 个目的港有效价格（灰色字体已自动过滤）${det ? '，已自动填入航司 ' + det : ''}`);
   } catch(err) {
