@@ -1812,7 +1812,8 @@ function updateRateMatch() {
         let ucNote = '';
         const rm = fullRemark.match(/路径:([^|]+)/);
         if (rm) routing = rm[1].trim();
-        if (/SCL空转单件限重80kg/.test(fullRemark)) ucNote = 'SCL空转单件限重80kg';
+        const limitNote = fullRemark.match(/(SCL|LIM)空转单件限重80kg/);
+        if (limitNote) ucNote = limitNote[0];
         const gwTypeMatch = fullRemark.match(/[|]\s*(空转|卡转)\s*[|]/);
         const gwType = gwTypeMatch ? gwTypeMatch[1] : '';
         matches.push({
@@ -1985,6 +1986,12 @@ function updateRateMatch() {
     if (m.routing) titleLine += ` · ${m.routing}`;
     const extras = [];
     if (m.gwType) extras.push(m.gwType);
+    // 兜底：SCL/LIM空转若未带限重备注，按routing二次中转港自动补上
+    if (!m.ucNote && m.gwType === '空转') {
+      const hubM = (m.routing || '').match(/PVG-[A-Z\/]+-(SCL|LIM)-[A-Z]+/i)
+                || (m.remark || '').match(/PVG-[A-Z\/]+-(SCL|LIM)-[A-Z]+/i);
+      if (hubM) m.ucNote = hubM[1].toUpperCase() + '空转单件限重80kg';
+    }
     if (m.ucNote) extras.push(m.ucNote);
     if (extras.length) titleLine += ` | ${extras.join(' | ')}`;
     // 第二行：表价生效日期 + UC表价关键备注（空转价/货机开口价/货机swap价）
@@ -2921,9 +2928,10 @@ function parseUCRateSheet(worksheet) {
     if (r.destName) baseRemark.push(r.destName);
     const gwType = /truck/i.test(r.gateway) ? '卡转' : (/PAX|NB/i.test(r.gateway) ? '空转' : '');
     if (gwType) baseRemark.push(gwType);
-    // SCL (PAX) NB空转单件限重80kg
-    if (/SCL/i.test(r.gateway) && /PAX|NB/i.test(r.gateway) && !/truck/i.test(r.gateway)) {
-      baseRemark.push('SCL空转单件限重80kg');
+    // SCL/LIM (PAX) NB空转单件限重80kg
+    const limitHub = (r.gateway || '').match(/^(SCL|LIM)/i);
+    if (limitHub && /PAX|NB/i.test(r.gateway) && !/truck/i.test(r.gateway)) {
+      baseRemark.push(limitHub[1].toUpperCase() + '空转单件限重80kg');
     }
     baseRemark.push('spot:' + r.spot);
     if (r.flight) baseRemark.push(r.flight);
