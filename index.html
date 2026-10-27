@@ -1857,9 +1857,9 @@ function updateRateMatch() {
             if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
           }
         }
-        // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注 → 相邻档参考
+        // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注（相邻档参考价独立换行显示，不拼进remark）
         const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
-        const fullRemark = [portRemark, tierNote, neighborNote].filter(Boolean).join('；');
+        const fullRemark = [portRemark, tierNote].filter(Boolean).join('；');
         let routing = '';
         let ucNote = '';
         const rm = fullRemark.match(/路径:([^|]+)/);
@@ -1871,7 +1871,7 @@ function updateRateMatch() {
         matches.push({
           airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: effectiveWk,
           base, final, adj, matchedDest: (r.dest||'').trim(),
-          density: densityUsed, remark: fullRemark, variants: vRefs, service: entryService,
+          density: densityUsed, remark: fullRemark, neighborNote, variants: vRefs, service: entryService,
           pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType
         });
       } else {
@@ -1910,13 +1910,38 @@ function updateRateMatch() {
         if (p.base !== undefined && (!best || p.base < best.base)) best = p;
       });
       if (best) {
+        // 命中档所在的 hub 行（取命中比重档对应的行），用于档级备注与相邻档参考价
+        const tierHubRow = hubRows.find(r => r.densityPrices && best.density && r.densityPrices[best.density])
+          || hubRows.find(r => r.density === 'flat') || hubRows[0];
+        // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价）
+        const tierNoteT = (tierHubRow.densityPrices && best.density && tierHubRow.densityPrices[best.density] && tierHubRow.densityPrices[best.density].note) || '';
+        // 相邻比重档参考价：命中档前后各一档，与主价同口径（含转运费+adj）
+        let neighborNote = '';
+        if (s.densityDef && s.densityDef.length > 1 && best.density && tierHubRow.densityPrices && tierHubRow.densityPrices[best.density]) {
+          const di = s.densityDef.findIndex(d => d.key === best.density);
+          if (di >= 0) {
+            const nbrParts = [];
+            [di - 1, di + 1].forEach(ni => {
+              if (ni < 0 || ni >= s.densityDef.length) return;
+              const nk = s.densityDef[ni].key;
+              const ndp = tierHubRow.densityPrices[nk];
+              if (!ndp) return;
+              const np = ndp[best.weightKey] !== undefined ? ndp[best.weightKey] : ndp[wk];
+              if (np === undefined) return;
+              nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`);
+            });
+            if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
+          }
+        }
         // 附 LH 表主价行完整备注（托盘/布卷/超155CM/计费重 说明）
-        const fullRemark = hubRows.find(r => (r.remark || '').includes('有效期'))?.remark || (hubRows.find(r => r.density === 'flat') || hubRows[0]).remark || '';
+        const baseRemark = hubRows.find(r => (r.remark || '').includes('有效期'))?.remark || (hubRows.find(r => r.density === 'flat') || hubRows[0]).remark || '';
+        const fullRemarkT = [baseRemark, tierNoteT].filter(Boolean).join('；');
         matches.push({
           airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: best.weightKey,
           base: best.base, final: best.base + trInfo.fee + adj, adj,
           matchedDest: qd, density: best.density,
-          remark: `经${trInfo.hub}转运 +${trInfo.fee}/kg${fullRemark ? '；' + fullRemark : ''}`
+          remark: `经${trInfo.hub}转运 +${trInfo.fee}/kg${fullRemarkT ? '；' + fullRemarkT : ''}`,
+          neighborNote
         });
       }
     });
@@ -2064,6 +2089,10 @@ function updateRateMatch() {
     } else {
       metaLine += m.remark ? (' · '+m.remark) : '';
     }
+    // 相邻比重档参考价：独立换行显示（与主价同口径）
+    const neighborLine = m.neighborNote
+      ? `<div style="font-size:12px;color:var(--accent);margin-top:3px">${m.neighborNote}</div>`
+      : '';
     // 统配表价：显示各服务方案价格（散货/托盘成对显示，主价高亮）
     let variantsLine = '';
     if (m.variants && Object.keys(m.variants).length) {
@@ -2097,6 +2126,7 @@ function updateRateMatch() {
       <div class="similar-left">
         <div>${titleLine}</div>
         <div class="similar-meta">${metaLine}</div>
+        ${neighborLine}
         ${variantsLine}
       </div>
       <div class="similar-price">
