@@ -4403,7 +4403,7 @@ $('btnQuickSearch').addEventListener('click', () => {
 // 无 "X-Y天" 段标签时按单段解析；目的港排除出发港（PVG 等）取价格块前的三字码
 function parseUnifiedRateText(text) {
   const rawText = String(text || '');
-  text = rawText.replace(/\s+/g, ' ');
+  text = rawText.replace(/\s+/g, ' ').replace(/[‐‑‒–—]/g, '-');
   // 目的港：取价格块（托盘/散货）之前、排除出发港后的最后一个三字码
   const priceIdx = text.search(/托盘|散货/);
   const head = priceIdx >= 0 ? text.slice(0, priceIdx) : text;
@@ -4687,7 +4687,10 @@ function parseUnifiedRateText(text) {
     const prefixStart = Math.max(0, m.index - 10);
     const prefixRaw = text.slice(prefixStart, m.index);
     const lastSpace = prefixRaw.lastIndexOf(' ');
-    const prefixText = (lastSpace >= 0 ? prefixRaw.slice(lastSpace + 1) : prefixRaw).replace(/[A-Z]+/g, '').replace(/\d{1,2}月\d{1,2}号?/, '').trim();
+    const prefixText = (lastSpace >= 0 ? prefixRaw.slice(lastSpace + 1) : prefixRaw)
+      .replace(/[A-Z]+/g, '').replace(/\d{1,2}月\d{1,2}号?/, '')
+      .replace(/运价?\s*上调|价格(?:下调|上调|更新|调整|生效)/g, '')
+      .replace(/\d+/g, '').trim();
     const label = prefixText ? `${prefixText}${m[1]}-${m[2]}天` : `${m[1]}-${m[2]}天`;
     segs.push({ label, start: m.index + m[0].length });
   }
@@ -4779,7 +4782,11 @@ function parseUnifiedRateText(text) {
   const ratioDriven = /1:\s*\d+\s*(?:托盘|散货)/.test(text);
   if (ratioDriven) {
     const wKeys2 = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-    const toDP2 = (d) => { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys2.forEach(w => out[k][w] = d[k]); }); return out; };
+    // 小货减价规则：如 "(500KG 以下小货 - 1)" → 计费重<500KG 各档(w45/w100/w300/w500)在标注价上减1，w1000 不变
+    const smCutM = text.match(/(\d+)\s*KG?\s*以下小货\s*[-]\s*(\d+(?:\.\d+)?)/);
+    const smCutW = smCutM ? +smCutM[1] : 500;
+    const smCut = smCutM ? +smCutM[2] : 0;
+    const toDP2 = (d) => { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys2.forEach(w => out[k][w] = d[k] - (w === 'w1000' ? 0 : smCut)); }); return out; };
     const segParsed = segs.map(s => {
       const palD = {}, bulkD = {};
       const re = /1:\s*(\d+)\s*托盘\s*(\d+(?:\.\d+)?)\s*散货\s*(\d+(?:\.\d+)?)/gi;
@@ -4802,7 +4809,7 @@ function parseUnifiedRateText(text) {
         variants[`${o.label}散货`] = { densityPrices: toDP2(segDP(o, false)) };
         variants[`${o.label}托盘`] = { densityPrices: toDP2(segDP(o, true)) };
       });
-      const row = { dest, densityDef: densityDef2, densityPrices: toDP2(segDP(main2, false)), variants, service, remark: `${dest} 统配 · 主价=${service}` };
+      const row = { dest, densityDef: densityDef2, densityPrices: toDP2(segDP(main2, false)), variants, service, remark: `${dest} 统配 · 主价=${service}${smCut ? `；${smCutW}KG以下小货-${smCut}` : ''}` };
       return { dest, date, ok: true, rows: [row] };
     }
   }
