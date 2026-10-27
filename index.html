@@ -1605,7 +1605,23 @@ function priceFromRow(row, wk, effDk) {
       }
     }
   }
-  // ②.5 当前比重档不存在 → 回退flat平货档（统配表价没有泡/重货价时按平货价显示）
+  // ②.5 当前比重档不存在 → 优先从 variants 散货同档补位（如主价段为慢服务、重/泡档只在快服务段 variants 里）；variants 也没有同档时才回退 flat 平货档
+  if (base === undefined && row.variants && effDk && effDk !== 'flat') {
+    const cand = [];
+    Object.keys(row.variants).forEach(vk => {
+      if (!/散货/.test(vk)) return;
+      const vdp = row.variants[vk].densityPrices;
+      if (!vdp) return;
+      const d = vdp[effDk];
+      if (d && d[wk] !== undefined) cand.push({ v: d[wk], wk, label: vk });
+      else if (d && wk === 'w45' && d['w100'] !== undefined) cand.push({ v: d['w100'], wk: 'w100', label: vk });
+    });
+    if (cand.length) {
+      const best = cand.sort((a, b) => a.v - b.v)[0];
+      base = best.v; densityUsed = effDk; effectiveWk = best.wk; srcLabel = best.label;
+    }
+  }
+  // ②.6 主段与 variants 都没有当前比重档 → 回退 flat 平货档（统配表价整体没有该泡/重货价时按平货价显示）
   if (base === undefined && hasDensity && effDk && effDk !== 'flat' && row.densityPrices['flat']) {
     const flat = row.densityPrices['flat'];
     if (flat[wk] !== undefined) { base = flat[wk]; densityUsed = 'flat'; }
@@ -1630,22 +1646,8 @@ function priceFromRow(row, wk, effDk) {
       }
     }
   }
-  // ④ 主价段缺当前密度档（如统配表主价为慢服务段、泡/重档在快服务段 variants 里）→ 从 variants 的散货同档补位（取最低）
-  if (base === undefined && row.variants) {
-    const cand = [];
-    Object.keys(row.variants).forEach(vk => {
-      if (!/散货/.test(vk)) return;
-      const vdp = row.variants[vk].densityPrices;
-      if (!vdp) return;
-      const d = vdp[effDk];
-      if (d && d[wk] !== undefined) cand.push({ v: d[wk], wk, label: vk });
-      else if (d && wk === 'w45' && d['w100'] !== undefined) cand.push({ v: d['w100'], wk: 'w100', label: vk });
-    });
-    if (cand.length) {
-      const best = cand.sort((a, b) => a.v - b.v)[0];
-      base = best.v; densityUsed = effDk; effectiveWk = best.wk; srcLabel = best.label;
-    }
-  }
+  // ④ 已上移为 ②.5：主价段缺当前密度档时优先从 variants 散货同档补位
+
   return { base, weightKey: effectiveWk, density: densityUsed, srcLabel };
 }
 
@@ -1810,7 +1812,7 @@ function updateRateMatch() {
 
       if (base !== undefined) {
         const final = base + adj;
-        // 统配参考价：主价=3-4天散货；variants 取各参考档（3-4天托盘/1-2天散货/1-2天托盘）同档价
+        // 统配参考价：主价=主段散货；variants 取各参考档同档价（缺当前比重档时回退该段 flat 平货价）
         let vRefs = null;
         let entryService = r.service || null;
         if (r.variants) {
@@ -1824,6 +1826,13 @@ function updateRateMatch() {
             } else if (v.prices) vp = v.prices[effectiveWk];
             if (vp !== undefined) vRefs[lb] = vp + adj;
           });
+        }
+        // 主价来自 variants 补位（srcLabel 非空，如主段慢服务无重/泡档、快服务段有）：主价归属到来源段；主段本身按当前档→flat 真实价入参考
+        if (srcLabel && r.densityPrices) {
+          entryService = srcLabel;
+          let mainVp = (r.densityPrices[effDk] && r.densityPrices[effDk][effectiveWk] !== undefined) ? r.densityPrices[effDk][effectiveWk]
+            : (r.densityPrices['flat'] && r.densityPrices['flat'][effectiveWk] !== undefined ? r.densityPrices['flat'][effectiveWk] : undefined);
+          if (mainVp !== undefined) { vRefs = vRefs || {}; vRefs[r.service] = mainVp + adj; }
         }
         // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价，绑定在命中比重档上）
         const tierNote = (r.densityPrices && densityUsed && r.densityPrices[densityUsed] && r.densityPrices[densityUsed].note) || '';
