@@ -1650,6 +1650,14 @@ function priceFromRow(row, wk, effDk) {
 
   return { base, weightKey: effectiveWk, density: densityUsed, srcLabel };
 }
+// 取某行在指定重量档的价格：优先命中比重档 → 标准重量档 prices → flat 平货档（供相邻重量档参考价使用）
+function pickWeightPrice(row, dUsed, wKey) {
+  if (dUsed && row.densityPrices && row.densityPrices[dUsed] && row.densityPrices[dUsed][wKey] !== undefined) return row.densityPrices[dUsed][wKey];
+  if (row.prices && row.prices[wKey] !== undefined) return row.prices[wKey];
+  if (row.densityPrices && row.densityPrices.flat && row.densityPrices.flat[wKey] !== undefined) return row.densityPrices.flat[wKey];
+  return undefined;
+}
+const WEIGHT_ORDER = ['w45', 'w100', 'w300', 'w500', 'w1000'];
 
 // 纯函数：查某票（目的港+毛重+体积）在未过期表价里的最低价（含 LH 联程转运），供单票/多票共用
 function lookupRateFor(dest, weight, volume) {
@@ -1803,8 +1811,15 @@ function updateRateMatch() {
       // UC欧洲中转方案暂时隐藏（BRU/AMS/FRA/MUC/VIE/CDG/LHR等）
       if (r.ucMeta && /^(BRU|AMS|FRA|MUC|VIE|CDG|LHR|MAD|BCN|PAR|LON|ROM|MIL|STO|OSL|CPH|ZRH|VCE)$/i.test(r.transit || '')) return;
 
+      // AA/DL经HNL重货门槛：GW≥200可用1:300+档，GW≥300可用≥1:500档；不达标重档不作主价，回退flat平散
+      let effDkForRow = effDk;
+      if (r.gwRule && effDkForRow && effDkForRow !== 'flat') {
+        const minNum = +(String(effDkForRow).match(/[：:](\d+)/) || [0, 0])[1];
+        const need = minNum >= 500 ? r.gwRule.tAll : r.gwRule.t300;
+        if (c.weight < need) effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
+      }
       // 取价：比重档当前档 → 低重量档 → 标准重量档 → variants 散货补位（统一走 priceFromRow）
-      const _p = priceFromRow(r, wk, effDk);
+      const _p = priceFromRow(r, wk, effDkForRow);
       const base = _p.base;
       const densityUsed = _p.density;
       const effectiveWk = _p.weightKey;
@@ -1857,6 +1872,12 @@ function updateRateMatch() {
             [di - 1, di + 1].forEach(ni => {
               if (ni < 0 || ni >= densityDefUsed.length) return;
               const nk = densityDefUsed[ni].key;
+              // AA/DL经HNL重货门槛：不达GW门槛的重档不作参考价显示
+              if (r.gwRule && nk !== 'flat') {
+                const nMin = +(String(nk).match(/[：:](\d+)/) || [0, 0])[1];
+                const nNeed = nMin >= 500 ? r.gwRule.tAll : r.gwRule.t300;
+                if (c.weight < nNeed) return;
+              }
               const ndp = r.densityPrices[nk];
               if (!ndp) return;
               const np = (ndp[effectiveWk] !== undefined ? ndp[effectiveWk] : ndp[wk]);
@@ -1864,6 +1885,18 @@ function updateRateMatch() {
               nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + adj, r.pp, r.bare)}`);
             });
             if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
+          }
+        }
+        // 相邻重量档参考价：当前档向上一更大重量档（如45KG→100KG、500KG→1000KG）同比重档价，供凑量参考；与主价同口径
+        {
+          const wi = WEIGHT_ORDER.indexOf(effectiveWk);
+          if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
+            const bk = WEIGHT_ORDER[wi + 1];
+            const bp = pickWeightPrice(r, densityUsed, bk);
+            if (bp !== undefined && bp !== base) {
+              const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + adj, r.pp, r.bare)}`;
+              neighborNote = neighborNote ? `${neighborNote} / ${wNote}` : wNote;
+            }
           }
         }
         // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注（相邻档参考价独立换行显示，不拼进remark）
@@ -1940,6 +1973,18 @@ function updateRateMatch() {
               nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`);
             });
             if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
+          }
+        }
+        // 相邻重量档参考价（与主价同口径，含转运费）
+        {
+          const wi = WEIGHT_ORDER.indexOf(best.weightKey);
+          if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
+            const bk = WEIGHT_ORDER[wi + 1];
+            const bp = pickWeightPrice(tierHubRow, best.density, bk);
+            if (bp !== undefined && bp !== best.base) {
+              const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`;
+              neighborNote = neighborNote ? `${neighborNote} / ${wNote}` : wNote;
+            }
           }
         }
         // 附 LH 表主价行完整备注（托盘/布卷/超155CM/计费重 说明）
@@ -4458,7 +4503,7 @@ function parseUnifiedRateText(text) {
         wAll.forEach(w => { tDP[d.key][w] = (w === 'w45') ? base + 4 - po + add45 : base + 4 - po; });
       });
       const remark = `标托+4，45级+${add45}，重货${heavyDefs.map(d => `1:${d.min}散-${d.scut}`).join('/')}`;
-      return { densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', remark, bare: true };
+      return { densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', remark, bare: true, gwRule: { t300: 200, tAll: 300 } };
     };
     const DLA = ['DTW','MSP','SLC','LAX'];
     const DL_NON_US = ['YUL','YYZ','YVR','MEX','CUN','EZE','SCL','BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','PUJ','STI'];
@@ -4514,6 +4559,7 @@ function parseUnifiedRateText(text) {
       let remark = `标托+4，重货${hDesc}`;
       const hPalKeys = Object.keys(hPal);
       if (hPalKeys.length) remark += `/${hPalKeys.map(k => `托-${hPal[k]}`).join('/')}`;
+      if (!/GW\s*[≥>]/.test(text)) remark += '；GW≥200kg可适用1:300比重价；GW≥300kg可适用所有比重价';
       const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
       const toDP = (d) => { const o = {}; wAll.forEach(w => o[w] = d); return o; };
       const rows = destList.map(c => {
@@ -4525,7 +4571,7 @@ function parseUnifiedRateText(text) {
           const po = hPal[d.key] !== undefined ? hPal[d.key] : (d.scut + 2);
           tDP[d.key] = toDP(base + 4 - po);
         });
-        return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark };
+        return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark, gwRule: { t300: 200, tAll: 300 } };
       });
       return { dest: destList.join('/'), date: dateH, ok: true, rows };
     }
@@ -4703,6 +4749,18 @@ function parseUnifiedRateText(text) {
     const label = prefixText ? `${prefixText}${m[1]}-${m[2]}天` : `${m[1]}-${m[2]}天`;
     segs.push({ label, start: m.index + m[0].length });
   }
+  // 单段服务标签（无 X-Y 连字符，如 "2天服务"）
+  const segSingleRe = /(\d+)\s*天\s*服务/g;
+  while ((m = segSingleRe.exec(text))) {
+    const prefixStart = Math.max(0, m.index - 14);
+    const prefixRaw = text.slice(prefixStart, m.index);
+    const lastSpace = prefixRaw.lastIndexOf(' ');
+    const prefixText = (lastSpace >= 0 ? prefixRaw.slice(lastSpace + 1) : prefixRaw)
+      .replace(/[A-Za-z]+/g, '').replace(/\d{1,2}月\d{1,2}号?/, '')
+      .replace(/运价?\s*上调|价格(?:下调|上调|更新|调整|生效|维持)/g, '')
+      .replace(/平货|小货/g, '').replace(/\d+/g, '').replace(/[：:，,\-−/\\K]/g, '').trim();
+    segs.push({ label: prefixText ? `${prefixText}${m[1]}天` : `${m[1]}天`, start: m.index + m[0].length });
+  }
   // 额外匹配 "价格下调/更新/调整/生效/开始" 等通用价格块标题（后面必须跟着托盘/散货价格）
   const genericRe = /价格(?:下调|更新|调整|生效|开始)/gi;
   while ((m = genericRe.exec(text))) {
@@ -4791,10 +4849,20 @@ function parseUnifiedRateText(text) {
   const ratioDriven = /1:\s*\d+\s*(?:托盘|散货)/.test(text);
   if (ratioDriven) {
     const wKeys2 = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-    // 小货减价规则：如 "(500KG 以下小货 - 1)" → 计费重<500KG 各档(w45/w100/w300/w500)在标注价上减1，w1000 不变
-    const smCutM = text.match(/(\d+)\s*KG?\s*以下小货\s*[-]\s*(\d+(?:\.\d+)?)/);
+    // 小货减价规则：兼容 "(500KG 以下小货 - 1)" 与 "500kg或3cbm以下平货 -1/K" → 小货档(w45/w100/w300/w500)减价，w1000 不变
+    const smCutM = text.match(/(\d+)\s*(?:kg|KG|公斤)(?:\s*或\s*(\d+(?:\.\d+)?)\s*cbm?)?\s*以下?\s*(?:平货|小货)?\s*[-]\s*(\d+(?:\.\d+)?)/);
     const smCutW = smCutM ? +smCutM[1] : 500;
-    const smCut = smCutM ? +smCutM[2] : 0;
+    const smCutVol = smCutM && smCutM[2] ? +smCutM[2] : 0;
+    const smCut = smCutM ? +smCutM[3] : 0;
+    const smNote = smCut ? `${smCutW}kg${smCutVol ? '或' + smCutVol + 'cbm' : ''}以下平货-${smCut}/K` : '';
+    // 末尾业务备注句：特货/mustgo单询、超方散货按托盘价、单件超重单独确认
+    const extraNotes = [];
+    if (/特货[^。！!；;]*(?:单询|单议|单独确认)/.test(text)) extraNotes.push('特货单询');
+    if (/mustgo[^。！!；;]*/i.test(text) && /单询|单议/.test(text)) extraNotes.push('mustgo货单询');
+    const overCbm = text.match(/超\s*(\d+(?:\.\d+)?)\s*方[^。！!；;]*(?:托盘|托价)/);
+    if (overCbm) extraNotes.push(`超${overCbm[1]}方散货适用托盘价`);
+    const overT = text.match(/单件超\s*(\d+(?:\.\d+)?)\s*T[^。！!；;]*/);
+    if (overT) extraNotes.push(`单件超${overT[1]}T单独确认`);
     const toDP2 = (d) => { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys2.forEach(w => out[k][w] = d[k] - (w === 'w1000' ? 0 : smCut)); }); return out; };
     const segParsed = segs.map(s => {
       const palD = {}, bulkD = {};
@@ -4818,7 +4886,12 @@ function parseUnifiedRateText(text) {
         variants[`${o.label}散货`] = { densityPrices: toDP2(segDP(o, false)) };
         variants[`${o.label}托盘`] = { densityPrices: toDP2(segDP(o, true)) };
       });
-      const row = { dest, densityDef: densityDef2, densityPrices: toDP2(segDP(main2, false)), variants, service, remark: `${dest} 统配 · 主价=${service}${smCut ? `；${smCutW}KG以下小货-${smCut}` : ''}` };
+      const rowRemark = [
+        `${dest} 统配 · 主价=${service}`,
+        smNote,
+        ...extraNotes
+      ].filter(Boolean).join('；');
+      const row = { dest, densityDef: densityDef2, densityPrices: toDP2(segDP(main2, false)), variants, service, remark: rowRemark };
       return { dest, date, ok: true, rows: [row] };
     }
   }
