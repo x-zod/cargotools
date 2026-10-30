@@ -1851,9 +1851,13 @@ function updateRateMatch() {
         const need = minNum >= 500 ? r.gwRule.tAll : r.gwRule.t300;
         if (c.weight < need) effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
       }
+      // 南美泡货门槛：泡档(<1:N)需毛重≥bulkMinGw(100kg)才生效，不足回退flat平货价
+      if (r.bulkMinGw && effDkForRow && effDkForRow.startsWith('<1:') && c.weight < r.bulkMinGw) {
+        effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
+      }
       // 取价：比重档当前档 → 低重量档 → 标准重量档 → variants 散货补位（统一走 priceFromRow）
       const _p = priceFromRow(r, wk, effDkForRow);
-      const base = _p.base;
+      let base = _p.base;
       const densityUsed = _p.density;
       const effectiveWk = _p.weightKey;
       const srcLabel = _p.srcLabel;
@@ -1861,7 +1865,7 @@ function updateRateMatch() {
       if (base !== undefined) {
         // 表级比重减价规则（上海AA经HND：GW≥300 重货按 1:500−1 / 1:1000−2 减）
         const ruleAdj = applyDensityRule(s.densityRule, c.weight, densityRatio);
-        const final = base + adj + ruleAdj;
+        let final = base + adj + ruleAdj;
         const ruleNote = densityRuleNote(s.densityRule);
         // 统配参考价：主价=主段散货；variants 取各参考档同档价（缺当前比重档时回退该段 flat 平货价）
         let vRefs = null;
@@ -1904,6 +1908,41 @@ function updateRateMatch() {
             } else {
               vRefs[palLabel] = base + (+pdM[1]) + adj;
             }
+          }
+        }
+        // 统配多服务段比价：散货各段在当前命中档取价，取最低为主价；同价优先上海段（非厦门/鄂州/O3/K4）
+        if (r.service && r.variants && Object.keys(r.variants).length) {
+          const candDk = densityUsed || effDk || 'flat';
+          const segBulkPrice = (dp) => {
+            if (!dp) return undefined;
+            if (dp[candDk] && dp[candDk][effectiveWk] !== undefined) return dp[candDk][effectiveWk];
+            if (dp.flat && dp.flat[effectiveWk] !== undefined) return dp.flat[effectiveWk];
+            return undefined;
+          };
+          const cand = [];
+          const mainP = segBulkPrice(r.densityPrices);
+          if (mainP !== undefined) cand.push({ label: r.service, price: mainP });
+          Object.keys(r.variants).forEach(lb => {
+            if (!/散货$/.test(lb)) return;
+            const vp = segBulkPrice(r.variants[lb].densityPrices);
+            if (vp !== undefined) cand.push({ label: lb, price: vp });
+          });
+          if (cand.length > 1) {
+            const isSH = lb => /上海/.test(lb) && !/(厦门|鄂州|O3|K4)/i.test(lb);
+            cand.sort((a, b) => (a.price - b.price) || (isSH(b.label) - isSH(a.label)));
+            const win = cand[0];
+            entryService = win.label;
+            base = win.price;
+            final = win.price + adj + ruleAdj;
+            const newRefs = {};
+            cand.forEach(c => { if (c.label !== win.label) newRefs[c.label] = c.price + adj; });
+            Object.keys(r.variants).forEach(lb => {
+              if (/托盘$/.test(lb)) {
+                const vp = segBulkPrice(r.variants[lb].densityPrices);
+                if (vp !== undefined) newRefs[lb] = vp + adj;
+              }
+            });
+            vRefs = Object.keys(newRefs).length ? newRefs : null;
           }
         }
         // 相邻比重档参考价：命中档前后各一档同重量档价格，供客户数据不准时参考
@@ -4543,7 +4582,9 @@ function parseUnifiedRateText(text) {
   const realCodes = allCodes.filter(c => !DEPOT.includes(c));
   const dest = realCodes.length ? realCodes[realCodes.length-1] : (allCodes[0] || null);
   let date = '';
-  const dm2 = text.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/);
+  let dm2 = null;
+  const dmAll = [...text.matchAll(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/g)];
+  for (const dm of dmAll) { const mm = +dm[1], dd = +dm[2]; if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) { dm2 = dm; break; } }
   if (dm2) date = `${new Date().getFullYear()}-${String(dm2[1]).padStart(2,'0')}-${String(dm2[2]).padStart(2,'0')}`;
   else {
     // 兼容 "（19号）" / "19号" 形式 → 当月当日
@@ -4799,13 +4840,18 @@ function parseUnifiedRateText(text) {
     const bubOnly = /仅限\s*([A-Z]{3}(?:\s*\/\s*[A-Z]{3})*)/i.exec(text);
     const bubCodes = bubOnly ? bubOnly[1].split(/\s*\/\s*/) : [];
     const hk = Object.keys(bub).map(Number).sort((a, b) => b - a);
+    const bubAvail = bubCodes.length ? `泡货限${bubCodes.join('/')}，100K起` : '';
     const out = rows.map(r => {
       const parts = [{ key: '1:300+', min: 300 }, { key: '1:500+', min: 500 }, { key: '1:800+', min: 800 }, { key: 'flat', flat: true }];
       const densityPrices = { '1:300+': toDP(r.m300), '1:500+': toDP(r.m500), '1:800+': toDP(r.m800), flat: toDP(r.flatV) };
+      const remarks = [];
+      let bulkMinGw = 0;
       if (bubCodes.includes(r.c) && hk.length) {
         hk.forEach(k => { parts.unshift({ key: '<1:' + k, max: k }); densityPrices['<1:' + k] = toDP(bub[k]); });
+        remarks.push(bubAvail);
+        bulkMinGw = 100;
       }
-      return { dest: r.c, densityDef: buildDensityDef(parts), densityPrices, service: '散货', remark: '' };
+      return { dest: r.c, densityDef: buildDensityDef(parts), densityPrices, service: '散货', remark: remarks.join('；'), bulkMinGw };
     });
     if (out.length) return { dest: out.map(r => r.dest).join('/'), date, ok: true, rows: out };
   }
