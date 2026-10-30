@@ -1583,6 +1583,37 @@ function matchWeightKey(chargeW) {
 const WEIGHT_LABEL = { w45:'45KG', w100:'100KG', w300:'300KG', w500:'500KG', w1000:'1000KG' };
 // DENSITY_LABEL 定义在下方（≈1300 行）统一维护，勿在此重复声明
 
+// 表级比重减价规则（如上海AA经HND备注"大于300KGS 比重价格 1:500-1 1:1000-2"）：
+// GW≥threshold 才适用；ratio≥1000 用1000档减，500≤ratio<1000 用500档减；无规则返回 null
+function parseDensityRule(remark) {
+  if (!remark) return null;
+  const findAdj = (n) => {
+    const m = remark.match(new RegExp('1\\s*[:：比]' + n + '\\s*[-−–~]\\s*(\\d+(?:\\.\\d+)?)'));
+    return m ? -parseFloat(m[1]) : null;
+  };
+  const a1000 = findAdj(1000), a500 = findAdj(500);
+  if (a1000 === null && a500 === null) return null;
+  // 必须出现明确门槛词（大于300KGS / ≥300KGS 等）才视为比重减价规则，避免其他备注误命中
+  const thrM = remark.match(/(?:大于|≥|>=|不低于|达到)(?:等于)?\s*(\d+)\s*KGS?/i);
+  if (!thrM) return null;
+  return { threshold: parseInt(thrM[1], 10), adj: { 500: a500, 1000: a1000 } };
+}
+// 按毛重/泡比取规则减价：未达门槛或非重货返回 0；达标重货返回负值（减价）
+function applyDensityRule(rule, weight, ratio) {
+  if (!rule || weight < rule.threshold) return 0;
+  if (ratio >= 1000 && rule.adj[1000] !== null) return rule.adj[1000];
+  if (ratio >= 500 && rule.adj[500] !== null) return rule.adj[500];
+  return 0;
+}
+// 规则精简备注文案
+function densityRuleNote(rule) {
+  if (!rule) return '';
+  const parts = [];
+  if (rule.adj[500] !== null) parts.push('1:500' + (rule.adj[500] >= 0 ? '+' : '') + rule.adj[500]);
+  if (rule.adj[1000] !== null) parts.push('1:1000' + (rule.adj[1000] >= 0 ? '+' : '') + rule.adj[1000]);
+  return 'GW≥' + rule.threshold + 'kg适用比重价（' + parts.join('/') + '）';
+}
+
 // 三级匹配取价：比重档当前档 → 比重档低重量档 → 标准重量档回退 → variants 散货补位。
 // 返回 {base, weightKey, density, srcLabel}；srcLabel 为④补位时的来源服务段（如"1-3天散货"）
 function priceFromRow(row, wk, effDk) {
@@ -1677,6 +1708,7 @@ function lookupRateFor(dest, weight, volume) {
     const isUCSheet = s.rows && s.rows.some(r => r.ucMeta);
     const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk);
     let directHit = false; // 该表内此目的港是否命中直航价（有直航则不再走 LH 联程转运）
+    const ruleAdj = applyDensityRule(s.densityRule, c.weight, ratio);
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
       const hit = destMatches(rd, qdn);
@@ -1687,8 +1719,9 @@ function lookupRateFor(dest, weight, volume) {
         // 45KG 档：仅当查询档为 w45 时，同目的港真实 45 档价优先于"回退到 100 档"的价
         const pReal45 = wk === 'w45' && p.weightKey === 'w45';
         const bReal45 = wk === 'w45' && best ? best.weightKey === 'w45' : false;
-        if (!best || (pReal45 && !bReal45) || (pReal45 === bReal45 && p.base < best.base)) {
-          best = { airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: p.weightKey, base: p.base, final: p.base + adj, density: p.density, pp: !!r.pp, bare: !!r.bare };
+        const candFinal = p.base + adj + ruleAdj;
+        if (!best || (pReal45 && !bReal45) || (pReal45 === bReal45 && candFinal < best.final)) {
+          best = { airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: p.weightKey, base: p.base, final: candFinal, density: p.density, pp: !!r.pp, bare: !!r.bare };
         }
       }
     });
@@ -1826,7 +1859,10 @@ function updateRateMatch() {
       const srcLabel = _p.srcLabel;
 
       if (base !== undefined) {
-        const final = base + adj;
+        // 表级比重减价规则（上海AA经HND：GW≥300 重货按 1:500−1 / 1:1000−2 减）
+        const ruleAdj = applyDensityRule(s.densityRule, c.weight, densityRatio);
+        const final = base + adj + ruleAdj;
+        const ruleNote = densityRuleNote(s.densityRule);
         // 统配参考价：主价=主段散货；variants 取各参考档同档价（缺当前比重档时回退该段 flat 平货价）
         let vRefs = null;
         let entryService = r.service || null;
@@ -1851,15 +1887,23 @@ function updateRateMatch() {
         }
         // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价，绑定在命中比重档上）
         const tierNote = (r.densityPrices && densityUsed && r.densityPrices[densityUsed] && r.densityPrices[densityUsed].note) || '';
-        // 备注兜底：remark 标注“托盘+N”且 variants 未提供托盘价时，按散价+托盘差价补托盘变体（不覆盖已有托盘价；不识别“标托”）
+        // 备注兜底：备注标注"托盘+N"且 variants 未提供托盘价时补托盘变体
+        // AA 普通表（HND/128直航，无自带 variants）：表级备注"托盘+2/KGS"固定加价，散货=主价、托盘=主价+加价，成对显示
         {
-          const remarkText = [r.remark, ...(r.remarks || []), tierNote].join('；');
+          const aaPlain = /^AA/i.test(s.airline || '') && !r.variants;
+          const remarkText = [r.remark, ...(r.remarks || []), tierNote, aaPlain ? (s.remark || '') : ''].join('；');
           const pdM = remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
-          if (pdM && !(vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k)))) {
+          const hasPal = vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k));
+          if (pdM && !hasPal) {
             vRefs = vRefs || {};
-            const palLabel = entryService && /散货$/.test(entryService) ? entryService.replace(/散货$/, '托盘') : '托盘';
-            vRefs[palLabel] = base + (+pdM[1]) + adj;
-            if (!entryService) entryService = '散货'; // 主价即散货，保证散/托同组成对显示
+            if (!entryService) entryService = '散货';
+            const palLabel = entryService.replace(/散货$/, '托盘');
+            if (aaPlain) {
+              vRefs[entryService] = final;
+              vRefs[palLabel] = final + (+pdM[1]);
+            } else {
+              vRefs[palLabel] = base + (+pdM[1]) + adj;
+            }
           }
         }
         // 相邻比重档参考价：命中档前后各一档同重量档价格，供客户数据不准时参考
@@ -1901,7 +1945,7 @@ function updateRateMatch() {
         }
         // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注（相邻档参考价独立换行显示，不拼进remark）
         const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
-        const fullRemark = [portRemark, tierNote].filter(Boolean).join('；');
+        const fullRemark = [portRemark, tierNote, ruleNote].filter(Boolean).join('；');
         let routing = '';
         let ucNote = '';
         const rm = fullRemark.match(/路径:([^|]+)/);
@@ -2017,7 +2061,12 @@ function updateRateMatch() {
         if (p.base !== undefined) {
           const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
           const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
-          matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:null });
+          const bulkFinal = p.base + fee + adj;
+          // AA128 表级备注固定托盘加价（如"托盘+2/KGS"），散/托成对展示
+          const palM = (aa128.remark || '').match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+          const palDiff = palM ? +palM[1] : 0;
+          matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:'散货',
+            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': bulkFinal + palDiff } : null });
         }
       }
     }
@@ -3395,45 +3444,70 @@ function parseUCTextUpdate(text) {
     }
 
     // 转运点规则："SCL 转的点，+100 减 7，1:200/300/400 各档 减 7/9/2，1:700 不变，1:1000 加 2"
+    // 新表述："+100/1:200 各档不变，1:300 减 5，1:400/700/1000 各档加 2/4/6"
     m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*(.+)/);
     if (m && currentTransit) {
       const hub = m[1];
       const rest = m[2];
       const adj = {};
-      // +100 减 N
+      // +100 减 N（旧表述：w100 减）
       let wm = rest.match(/\+100\s*减\s*(\d+(?:\.\d+)?)/);
       if (wm) adj.w100 = -parseFloat(wm[1]);
+      // +100 不变 / +100 档不变（w100 保持基准价，不加不减）
+      if (/\+100[^，,；;]*不变/.test(rest)) adj.w100 = 0;
       // 1:200/300/400 各档 减 7/9/2
       let dm = rest.match(/1:([\d/]+)\s*各档\s*减\s*([\d./]+)/);
       if (dm) Object.assign(adj, parseDensityAdj(dm[1], dm[2]));
-      // 1:700 不变
-      [...rest.matchAll(/1:(\d+)\s*不变/g)].forEach(x => { adj['d' + x[1]] = 0; });
-      // 1:1000 加 2
-      [...rest.matchAll(/1:(\d+)\s*加\s*(\d+(?:\.\d+)?)/g)].forEach(x => { adj['d' + x[1]] = parseFloat(x[2]); });
+      // 1:200/300 各档 不变（多档不变，记 0）
+      let im = rest.match(/1:([\d/]+)\s*各档\s*不变/);
+      if (im) im[1].split('/').forEach(r => { adj['d' + r.replace(/\D/g, '')] = 0; });
+      // 1:400/700/1000 各档加 2/4/6（多档正向加减）
+      let am = rest.match(/1:([\d/]+)\s*各档\s*加\s*([\d./]+)/);
+      if (am) {
+        const rs = am[1].split('/'), ns = am[2].split('/');
+        rs.forEach((r, i) => { if (ns[i] !== undefined) adj['d' + r.replace(/\D/g, '')] = parseFloat(ns[i]); });
+      }
+      // 单档"1:700 不变"
+      [...rest.matchAll(/1:(\d+)\s*不变/g)].forEach(x => { if (adj['d' + x[1]] === undefined) adj['d' + x[1]] = 0; });
+      // 单档"1:300 减 5"（无"各档"字样）
+      [...rest.matchAll(/1:(\d+)\s*减\s*(\d+(?:\.\d+)?)/g)].forEach(x => {
+        const k = 'd' + x[1]; if (adj[k] === undefined) adj[k] = -parseFloat(x[2]);
+      });
+      // 单档"1:1000 加 2"（旧格式兜底）
+      [...rest.matchAll(/1:(\d+)\s*加\s*(\d+(?:\.\d+)?)/g)].forEach(x => {
+        const k = 'd' + x[1]; if (adj[k] === undefined) adj[k] = parseFloat(x[2]);
+      });
+      // 无 1: 档前缀时的全档统一加减："各档 加 1" / "各档 减 5"
+      if (!Object.keys(adj).length) {
+        const allM = rest.match(/^各档\s*(加|减)\s*(\d+(?:\.\d+)?)/);
+        if (allM) adj.all = (allM[1] === '加' ? 1 : -1) * parseFloat(allM[2]);
+      }
       const key = hub + '-' + currentTransit;
       result.transferRules[key] = { hub, transit: currentTransit, adj };
       return;
     }
 
-    // LIM转的点，各档减5
-    m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*各档\s*减\s*(\d+(?:\.\d+)?)/);
+    // LIM/SCL 等转的点，各档 减5 / 各档 加1（全档统一加减）
+    m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*各档\s*(加|减)\s*(\d+(?:\.\d+)?)/);
     if (m && currentTransit) {
       const hub = m[1];
+      const sign = m[2] === '加' ? 1 : -1;
       const key = hub + '-' + currentTransit;
-      result.transferRules[key] = { hub, transit: currentTransit, adj: { all: -parseFloat(m[2]) } };
+      result.transferRules[key] = { hub, transit: currentTransit, adj: { all: sign * parseFloat(m[3]) } };
       return;
     }
 
-    // MIA各档减5
-    m = seg.match(/^MIA.*各档\s*减\s*(\d+(?:\.\d+)?)/i);
+    // MIA各档减5 / 各档加2
+    m = seg.match(/^MIA.*各档\s*(加|减)\s*(\d+(?:\.\d+)?)/i);
     if (m) {
-      result.miaAdj = -parseFloat(m[1]);
+      const sign = m[1] === '加' ? 1 : -1;
+      result.miaAdj = sign * parseFloat(m[2]);
       currentTransit = 'MIA';
       return;
     }
 
-    // LAX swap space 标题行
-    if (/LAX\s*swap\s*space/i.test(seg)) { currentTransit = 'LAX'; return; }
+    // LAX swap space 标题行（仅独立短行才切换上下文，避免吞掉含该词的长备注）
+    if (/^LAX\s*swap\s*space/i.test(seg)) { currentTransit = 'LAX'; return; }
 
     // 其他行作为备注
     if (seg && !/^[A-Z]{3}-[A-Z]{3}/.test(seg) && !/^[A-Z]{3}\s*转的点/.test(seg)) {
@@ -4071,6 +4145,9 @@ $('btnSaveRate').addEventListener('click', () => {
       remark: (parsedRows._sheetRemarks && parsedRows._sheetRemarks[t]) || '',
       created_at: new Date().toISOString()
     };
+    // 表级比重减价规则解析（上海AA经HND：≥300kg 重货 1:500−1 / 1:1000−2）
+    const dRule = parseDensityRule(sheet.remark);
+    if (dRule) sheet.densityRule = dRule;
     // UC基准表价标记
     if (isUCBase) sheet.ucBase = true;
     // 该中转点表若带自定义比重阶梯（如 AA128 的 1:200+ / LH 的平散货），提升到表级供匹配
