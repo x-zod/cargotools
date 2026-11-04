@@ -1805,6 +1805,23 @@ function lookupRateFor(dest, weight, volume) {
       }
     }
   }
+  // AA 经GRU 巴西内陆联动：目的港在 AA_GRU_BRAZIL_POOL 时，用 AA 表 GRU 基准价 + 内陆转运附加费
+  // 附加费按计费重选档（2000+/1000+/500+/300+/100+，每票最低 MIN）；展示路径"GRU转运"
+  if (!best && AA_GRU_BRAZIL_POOL[qdn]) {
+    const ag = findAAGruRow(sheets, isExp, wk, ratio, dk);
+    if (ag && ag.p.base !== undefined) {
+      const entry = AA_GRU_BRAZIL_POOL[qdn];
+      const add = gruAddOnPerKg(entry, c.chargeW);
+      const adj = (wk === 'w45') ? 0 : currentAdjFor(ag.sheet.airline, ag.sheet.transit);
+      const ruleAdj = applyDensityRule(ag.sheet.densityRule, c.weight, ratio);
+      const smallAdj = applySmallRule(ag.row.smallRule, weight, volume);
+      const final = ag.p.base + add + adj + ruleAdj + smallAdj;
+      const feeLbl = fmtPrice(add, false, false);
+      best = { airline:'AA', transit:'GRU转运', sheetDate: ag.sheet.date, weightKey: ag.p.weightKey,
+        base: ag.p.base, final, density: ag.p.density, gruBrazil: true, addOn: add,
+        remark: `GRU转运${qdn}，转运费+${feeLbl}/kg（MIN ¥${fmtNum(entry.min,0)}/票）` };
+    }
+  }
   return best;
 }
 
@@ -2177,6 +2194,25 @@ function updateRateMatch() {
             variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null });
         }
       }
+    }
+  }
+
+  // AA 经GRU 巴西内陆联动条目（供参考展示）：目的港在 AA_GRU_BRAZIL_POOL 时，AA 表 GRU 基准价 + 内陆转运附加费
+  // 附加费按计费重选档（2000+/1000+/500+/300+/100+，每票最低 MIN）；路径备注"GRU转运"
+  if (AA_GRU_BRAZIL_POOL[qd]) {
+    const ag = findAAGruRow(sheets, isSheetExpired, wk, densityRatio, dk);
+    if (ag && ag.p.base !== undefined) {
+      const entry = AA_GRU_BRAZIL_POOL[qd];
+      const add = gruAddOnPerKg(entry, c.chargeW);
+      const adj = (wk === 'w45') ? 0 : currentAdjFor(ag.sheet.airline, ag.sheet.transit);
+      const ruleAdj = applyDensityRule(ag.sheet.densityRule, c.weight, densityRatio);
+      const smallAdj = applySmallRule(ag.row.smallRule, c.weight, c.volume);
+      const final = ag.p.base + add + adj + ruleAdj + smallAdj;
+      const feeLbl = fmtPrice(add, false, false);
+      matches.push({ airline:'AA', transit:'GRU转运', sheetDate: ag.sheet.date, weightKey: ag.p.weightKey,
+        base: ag.p.base, final, adj, density: ag.p.density, matchedDest: qd,
+        remark: `GRU转运${qd}，转运费+${feeLbl}/kg（MIN ¥${fmtNum(entry.min,0)}/票）`, gruBrazil: true, addOn: add,
+        service:'散货', smallAdj, smallRule: ag.row.smallRule, ruleAdj, ruleNote: densityRuleNote(ag.sheet.densityRule) });
     }
   }
 
@@ -2825,6 +2861,42 @@ const JL_CANADA_POOL = {
   'YVR': 0,  // 直飞
   'YYT': 1, 'YUL': 1, 'YHZ': 1, 'YYC': 1, 'YYZ': 1, 'YEG': 1, 'YWG': 1, 'YHM': 1
 };
+
+// AA 经GRU 巴西内陆目的港池（Brazil Trucking Add-ons，RMB 已含利润）
+// 转运费结构：min=每票最低附加费(RMB)；tiers=[重量kg, RMB/kg] 按计费重选档（2000+/1000+/500+/300+/100+）
+// 附加费总额 = max(min, CW×档单价)；每kg附加 = 总额/CW；展示价 = GRU 主价 + 每kg附加
+const AA_GRU_BRAZIL_POOL = {
+  'CFB': { min: 5150, tiers: [[2000, 3.0], [1000, 5.5], [500, 12.0], [300, 18.0], [100, 51.5]] },
+  'CNF': { min: 850,  tiers: [[2000, 0.5], [1000, 1.0], [500, 2.5], [300, 3.5], [100, 8.5]] },
+  'CWB': { min: 3650, tiers: [[2000, 2.0], [1000, 4.0], [500, 7.5], [300, 12.5], [100, 36.5]] },
+  'GIG': { min: 3850, tiers: [[2000, 2.0], [1000, 4.0], [500, 8.0], [300, 13.0], [100, 38.5]] },
+  'POA': { min: 9050, tiers: [[2000, 5.0], [1000, 9.5], [500, 18.5], [300, 30.5], [100, 90.5]] },
+  'VCP': { min: 1700, tiers: [[2000, 1.0], [1000, 2.0], [500, 4.0], [300, 6.0], [100, 17.0]] }
+};
+// 按计费重选档：≥2000 用 2000+ 档 … ≥100 用 100+ 档；<100kg 按最轻档（100+）
+function gruTierFee(entry, cw) {
+  for (const [w, f] of entry.tiers) if (cw >= w) return f;
+  return entry.tiers[entry.tiers.length - 1][1];
+}
+// 每kg附加费 = max(min, CW×档单价) / CW（小票不足 MIN 时摊高）
+function gruAddOnPerKg(entry, cw) {
+  const fee = gruTierFee(entry, cw);
+  return Math.max(entry.min, cw * fee) / cw;
+}
+// 找 AA 表 GRU 基准行（未过期）：遍历所有 AA 表含 GRU 行，取散货 base 最低者
+function findAAGruRow(sheets, isExpFn, wk, ratio, dk) {
+  let res = null;
+  sheets.forEach(s => {
+    if (!s.rows || isExpFn(s)) return;
+    if (!/^AA/i.test(s.airline || '')) return;
+    const row = s.rows.find(r => normalizeDest(r.dest) === 'GRU');
+    if (!row) return;
+    const effD = (s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk;
+    const p = priceFromRow(row, wk, effD);
+    if (p.base !== undefined && (!res || p.base < res.p.base)) res = { sheet: s, row, p };
+  });
+  return res;
+}
 
 // 从基准行备注提取卡车加价（元/kg）；识别不到返回 null
 function jlExtractTruckFee(row) {
