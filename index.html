@@ -1884,6 +1884,7 @@ function updateRateMatch() {
   const hasUCUpdated = sheets.some(s => s.ucUpdated && !isSheetExpired(s));
   const matches = [];
   const missing = [];
+  const mutedHits = [];   // 期间内市价忽略的目的港（EZE 跑道维修等）
   sheets.forEach(s => {
     if (!s.rows) return;
     if (isSheetExpired(s)) return;   // 已过期/已到期：不参与匹配
@@ -1899,6 +1900,17 @@ function updateRateMatch() {
       const rd = normalizeDest(r.dest);
       const hit = destMatches(rd, qd);
       if (!hit) return;
+      // 市价忽略（EZE 跑道维修等）：忽略期内该目的港不出价，只给提示；期满自动恢复
+      if (r.muted) {
+        const until = r.muted.until || '';
+        if (!until || todayStr() <= until) {
+          const dupKey = s.airline + '|' + (r.dest || '').trim();
+          if (!mutedHits.some(x => x.dupKey === dupKey)) {
+            mutedHits.push({ dupKey, airline: s.airline, transit: s.transit || '', dest: (r.dest || '').trim(), note: r.muted.note || '市价忽略', until, from: r.muted.from || '' });
+          }
+          return;
+        }
+      }
       // UC欧洲中转方案暂时隐藏（BRU/AMS/FRA/MUC/VIE/CDG/LHR等）
       if (r.ucMeta && /^(BRU|AMS|FRA|MUC|VIE|CDG|LHR|MAD|BCN|PAR|LON|ROM|MIL|STO|OSL|CPH|ZRH|VCE)$/i.test(r.transit || '')) return;
 
@@ -2253,9 +2265,9 @@ function updateRateMatch() {
     window.__currentRateTransit = null;
     window.__currentRateDensity = null;
   }
-  card.style.display = (matches.length || missing.length) ? 'block' : 'none';
+  card.style.display = (matches.length || missing.length || mutedHits.length) ? 'block' : 'none';
   const box = $('rateMatchList');
-  if (!matches.length && !missing.length) {
+  if (!matches.length && !missing.length && !mutedHits.length) {
     // 完全没匹配到：显示卡片（含诊断），否则用户看不到原因
     card.style.display = 'block';
     const allDests = sheets.flatMap(s => s.rows ? s.rows.map(r => r.dest) : []);
@@ -2400,6 +2412,14 @@ function updateRateMatch() {
       const chl = channelLabel(m.airline, m.transit);
       html += `<div style="margin:2px 0"><b>${chl || m.airline}</b>${(m.transit && !chl)?`<span style="color:var(--accent);font-size:11px">(${m.transit})</span>`:''} ${m.matchedDest}：${m.avail} <span style="color:var(--text-3)">（${m.sheetDate}）</span></div>`;
     });
+    html += '</div>';
+  }
+  if (mutedHits.length) {
+    html += '<div style="margin-top:10px;padding:9px 14px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;font-size:12.5px;color:#991B1B">';
+    html += mutedHits.map(m => {
+      const chl = channelLabel(m.airline, m.transit) || m.airline;
+      return `<div style="margin:2px 0"><b>${chl}</b> ${m.dest}：市价忽略，暂不出价${m.until ? '（至 ' + m.until + '）' : ''}${m.note && m.note !== '市价忽略' ? '，' + m.note : ''}</div>`;
+    }).join('');
     html += '</div>';
   }
   box.innerHTML = html;
@@ -3553,7 +3573,7 @@ function parseUCRateSheet(worksheet) {
 // 解析UC文字版表价，返回 {date, baseDate, hubs:{}, transferRules:{}, miaAdj:number, remarks:[]}
 function parseUCTextUpdate(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const result = { date: '', baseDate: '', hubs: {}, transferRules: {}, miaAdj: 0, remarks: [] };
+  const result = { date: '', baseDate: '', hubs: {}, transferRules: {}, miaAdj: 0, miaAdjMap: {}, headerNote: '', ignoreDests: [], ignoreFrom: '', ignoreTo: '', ignoreNote: '', remarks: [] };
   let currentTransit = '';  // 当前美国中转点上下文（AKL/LAX/MIA）
 
   // 解析日期：22Oct26 → 2026-10-22
@@ -3599,6 +3619,11 @@ function parseUCTextUpdate(text) {
       if (dm) result.date = parseDate(dm[1]);
       const bm = line.match(/(\d{1,2}[A-Za-z]{3}\d{2})/g);
       if (bm && bm[1]) result.baseDate = parseDate(bm[1]);
+      // 首行其他说明（币种/口径/新货物）留作表级备注，不静默丢弃
+      const bits = [];
+      if (/cny\s*\/?\s*k\s*all\s*in/i.test(line)) bits.push('CNY/K all in');
+      if (/新货物/.test(line)) bits.push('新货物');
+      if (bits.length) result.headerNote = bits.join('，');
       return;
     }
 
@@ -3692,12 +3717,61 @@ function parseUCTextUpdate(text) {
       return;
     }
 
-    // MIA各档减5 / 各档加2
+    // MIA PAX / B767F 分档加价："+100 和 1:200 各档 加 5，1:300/400/800 各档 加 2"
+    // 兼容旧的单一表述："MIA各档减5" / "MIA各档加2"
+    if (/^MIA/i.test(seg) && /(加|减)/.test(seg) && (/\+100/.test(seg) || /1\s*[：:]/.test(seg))) {
+      const map = {};
+      seg.split(/[，,；;]/).map(s => s.trim()).filter(Boolean).forEach(p => {
+        const sm = p.match(/(加|减)\s*([\d./]+)/);
+        if (!sm) return;
+        const sign = sm[1] === '加' ? 1 : -1;
+        const nums = sm[2].split('/').map(x => parseFloat(x)).filter(n => !isNaN(n));
+        if (!nums.length) return;
+        const targets = [];
+        if (/\+100/.test(p)) targets.push('w100');
+        for (const x of p.matchAll(/1\s*[：:]\s*([\d/]+)/g)) {
+          x[1].split('/').forEach(r => targets.push('d' + r.replace(/\D/g, '')));
+        }
+        // "+100 和 1:200 各档 加 5" 只给一个数值时，各目标同值
+        targets.forEach((t, i) => { map[t] = sign * (nums[i] !== undefined ? nums[i] : nums[0]); });
+      });
+      if (Object.keys(map).length) {
+        result.miaAdjMap = map;
+        result.miaAdj = map.w100 !== undefined ? map.w100 : (map[Object.keys(map)[0]] || 0);
+        currentTransit = 'MIA';
+        return;
+      }
+    }
+
+    // MIA各档减5 / 各档加2（单一数值，全档统一）
     m = seg.match(/^MIA.*各档\s*(加|减)\s*(\d+(?:\.\d+)?)/i);
     if (m) {
       const sign = m[1] === '加' ? 1 : -1;
       result.miaAdj = sign * parseFloat(m[2]);
+      result.miaAdjMap = {};
       currentTransit = 'MIA';
+      return;
+    }
+
+    // 目的港市价忽略（如 EZE 跑道维修期间）："26Oct26 - 10Nov26 ... 所有 EZE PAX NB/WB/B767F 市价忽略"
+    if (/市价忽略/.test(seg)) {
+      const rangeM = seg.match(/(\d{1,2}[A-Za-z]{3}\d{2})\s*[-–—~至]\s*(\d{1,2}[A-Za-z]{3}\d{2})/);
+      if (rangeM) { result.ignoreFrom = parseDate(rangeM[1]); result.ignoreTo = parseDate(rangeM[2]); }
+      [...seg.matchAll(/所有\s*([A-Z]{3})/g)].forEach(x => {
+        const c = x[1].toUpperCase();
+        if (!result.ignoreDests.includes(c)) result.ignoreDests.push(c);
+      });
+      if (!result.ignoreDests.length) {
+        [...seg.matchAll(/([A-Z]{3})\s+PAX/g)].forEach(x => {
+          const c = x[1].toUpperCase();
+          if (!result.ignoreDests.includes(c)) result.ignoreDests.push(c);
+        });
+      }
+      const surgeM = seg.match(/([A-Z]{3})\s*(B767F)\s*二程/);
+      const noteParts = [];
+      if (/跑道|维修/.test(seg)) noteParts.push('跑道维修期间 PAX NB/WB 大量取消');
+      if (surgeM) noteParts.push(`${surgeM[1]} ${surgeM[2]} 二程暴涨，二程需单询`);
+      result.ignoreNote = noteParts.join('；') || '市价忽略';
       return;
     }
 
@@ -3718,6 +3792,7 @@ function applyUCTextUpdate(baseRows, textUpdate) {
   const hubs = textUpdate.hubs;       // {AKL-SCL: {transit, hub, prices}}
   const rules = textUpdate.transferRules;  // {SCL-AKL: {hub, transit, adj}}
   const miaAdj = textUpdate.miaAdj;
+  const miaAdjMap = textUpdate.miaAdjMap || {}
 
   // 从remarks中提取Routing，判断经哪个枢纽港转
   const getTransferHub = (r) => {
@@ -3735,7 +3810,7 @@ function applyUCTextUpdate(baseRows, textUpdate) {
   return baseRows.map(r => {
     if (!r.ucMeta) return r;  // 非UC表价行保持不变
     const meta = r.ucMeta;
-    const newRow = Object.assign({}, r, { prices: Object.assign({}, r.prices), densityPrices: {}, remarks: r.remarks ? r.remarks.slice() : [] });
+    const newRow = Object.assign({}, r, { prices: Object.assign({}, r.prices), densityPrices: Object.assign({}, r.densityPrices || {}), remarks: r.remarks ? r.remarks.slice() : [] });
     let updated = false;
 
     // UC表价不区分重量档，只有w100；比重档格式 densityPrices.d400 = {w100: 价格}
@@ -3809,6 +3884,13 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         newRow.prices.w100 = defaultW100;
         // 比重档
         const dp = {};
+        // 规则写成「各档 ±N」（adj.all）时，按行内已有档位逐档加减
+        if (adj.all !== undefined && !Object.keys(adj).some(k => k.startsWith('d'))) {
+          Object.keys(r.densityPrices || {}).forEach(k => {
+            const v = r.densityPrices[k];
+            if (k.startsWith('d') && v && v.w100 !== undefined) dp[k] = { w100: v.w100 + adj.all };
+          });
+        }
         Object.keys(adj).forEach(k => {
           if (k.startsWith('d')) {
             const dAdj = getAdj(k);
@@ -3830,16 +3912,48 @@ function applyUCTextUpdate(baseRows, textUpdate) {
       }
     }
 
-    // MIA中转：所有直接从MIA PAX中转的目的港价格-5
-    if (miaAdj && r.transit === 'MIA') {
-      Object.keys(newRow.prices).forEach(k => { newRow.prices[k] = (newRow.prices[k] || 0) + miaAdj; });
+    // MIA中转分档加价（+100 与 1:200 一档、1:300/400/800 另一档）；没有分档表时回退单一数值全档统一
+    const hasMiaMap = Object.keys(miaAdjMap).length > 0;
+    if ((miaAdj || hasMiaMap) && r.transit === 'MIA') {
+      const miaFor = (k) => (hasMiaMap ? (miaAdjMap[k] !== undefined ? miaAdjMap[k] : 0) : miaAdj);
+      const baseW100 = (r.prices && r.prices.w100 !== undefined) ? r.prices.w100 : null;
+      Object.keys(newRow.prices).forEach(k => {
+        const a = miaFor('w100');
+        if (a) newRow.prices[k] = (newRow.prices[k] || 0) + a;
+      });
       Object.keys(newRow.densityPrices).forEach(k => {
-        if (newRow.densityPrices[k] && newRow.densityPrices[k].w100 !== undefined) {
-          newRow.densityPrices[k].w100 += miaAdj;
+        const a = miaFor(k);
+        if (a && newRow.densityPrices[k] && newRow.densityPrices[k].w100 !== undefined) {
+          newRow.densityPrices[k].w100 += a;
         }
       });
-      if (!updated) newRow.remarks.push('文字版更新:' + textUpdate.date + ' MIA' + miaAdj);
+      // UC 模型是「单基准价 + 各档加减」，MIA 行原本没有比重档时按分档表推导各档价
+      if (hasMiaMap && baseW100 !== null && !Object.keys(newRow.densityPrices).length) {
+        Object.keys(miaAdjMap).forEach(k => {
+          if (k.startsWith('d')) newRow.densityPrices[k] = { w100: baseW100 + miaAdjMap[k] };
+        });
+      }
+      if (!updated) {
+        const desc = hasMiaMap
+          ? Object.keys(miaAdjMap).map(k => (k === 'w100' ? '+100' : '1:' + k.substring(1)) + (miaAdjMap[k] > 0 ? '+' : '') + miaAdjMap[k]).join(' ')
+          : ('MIA' + (miaAdj > 0 ? '+' : '') + miaAdj);
+        newRow.remarks.push('文字版更新:' + textUpdate.date + ' ' + desc);
+      }
       updated = true;
+    }
+
+    // 目的港市价忽略（EZE 跑道维修等）：标注并从匹配中剔除，到期日之后自动恢复
+    const igDest = (textUpdate.ignoreDests || []).find(c => (r.dest || '').toUpperCase().includes(c));
+    if (igDest) {
+      newRow.muted = {
+        from: textUpdate.ignoreFrom || '',
+        until: textUpdate.ignoreTo || '',
+        note: textUpdate.ignoreNote || '市价忽略'
+      };
+      newRow.remarks.push('市价忽略:' + igDest
+        + (textUpdate.ignoreFrom ? ' ' + textUpdate.ignoreFrom : '')
+        + (textUpdate.ignoreTo ? '~' + textUpdate.ignoreTo : '')
+        + (textUpdate.ignoreNote ? '，' + textUpdate.ignoreNote : ''));
     }
 
     // 构建densityDef（UC表价自定义比重阶梯）
@@ -5267,8 +5381,8 @@ function detectRateMeta(text) {
   else if (/MU\s*\/\s*HO|MU\/HO/.test(t)) m.airline = 'MU/HO';
   else if (/^AA\s*[:：]|AA经HNL|AA：|AA：/.test(t)) m.airline = 'AA';
   else if (/^DL\b|DL裸运费|DL：/.test(t)) m.airline = 'DL';
-  else if (/LH\b|上海LH/.test(t)) m.airline = 'LH';
-  else if (/PVG\s*-?\s*FRA|MUC|FRA/.test(t) && !/重托|重散|泡托|泡散|托盘\s*\d/.test(t)) m.airline = 'LH';
+  else if (/LH\b|上海LH|汉莎/.test(t)) m.airline = 'LH';
+  // 注意：不能凭 PVG-FRA / MUC 字样就判 LH——FRA/MUC 统配文字版属于其他航司，LH 上海只有图片版表价
   // 中转点/备注（聚焦 AA/DL：经HNL / 经HND / 直飞DFW）
   if (m.airline === 'AA' && /美国本土点|DFW\+1段|标托/.test(t) && !/经HND|AA128|直飞DFW/.test(t)) m.transit = '经HNL';
   else if (m.airline === 'DL' && /裸运费|DTW\s*\/\s*MSP/.test(t)) m.transit = '经HNL';
@@ -5334,7 +5448,7 @@ $('btnUCTextUpdate').addEventListener('click', () => {
     if (!text) { toast('请先粘贴UC文字版表价'); return; }
     const update = parseUCTextUpdate(text);
     if (!update.date) { toast('未能识别UC文字版（需含生效日期，如22Oct26）'); return; }
-    if (!Object.keys(update.hubs).length && !update.miaAdj) { toast('未能识别到枢纽港价格或MIA调整'); return; }
+    if (!Object.keys(update.hubs).length && !update.miaAdj && !Object.keys(update.miaAdjMap || {}).length) { toast('未能识别到枢纽港价格或MIA调整'); return; }
 
     // 找到已导入的UC基准表价（ucBase标记，排除手写版更新表价）
     const allRates = loadRates();
@@ -5357,9 +5471,18 @@ $('btnUCTextUpdate').addEventListener('click', () => {
     });
 
     // 生成预览
-    let previewHtml = `<div style="font-size:13px;color:var(--green)">✔ UC文字版更新解析成功（生效 ${update.date}）</div>`;
+    let previewHtml = `<div style="font-size:13px;color:var(--green)">✔ UC文字版更新解析成功（生效 ${update.date}${update.baseDate?'，基准 '+update.baseDate:''}）</div>`;
     previewHtml += `<div style="font-size:12.5px;color:var(--text-2);margin-top:4px">枢纽港更新：${Object.keys(update.hubs).join('、') || '无'}</div>`;
-    if (update.miaAdj) previewHtml += `<div style="font-size:12.5px;color:var(--text-2)">MIA全局调整：${update.miaAdj>0?'+':''}${update.miaAdj}</div>`;
+    if (Object.keys(update.miaAdjMap || {}).length) {
+      const mdesc = Object.keys(update.miaAdjMap).map(k => (k === 'w100' ? '+100' : '1:' + k.substring(1)) + (update.miaAdjMap[k] > 0 ? '+' : '') + update.miaAdjMap[k]).join('  ');
+      previewHtml += `<div style="font-size:12.5px;color:var(--text-2)">MIA分档调整：${mdesc}</div>`;
+    } else if (update.miaAdj) {
+      previewHtml += `<div style="font-size:12.5px;color:var(--text-2)">MIA全局调整：${update.miaAdj>0?'+':''}${update.miaAdj}</div>`;
+    }
+    if (update.ignoreDests && update.ignoreDests.length) {
+      previewHtml += `<div style="font-size:12.5px;color:var(--red,#d93025)">市价忽略：${update.ignoreDests.join('、')}${update.ignoreFrom?'（'+update.ignoreFrom+'~'+(update.ignoreTo||'')+'）':''}${update.ignoreNote?'，'+update.ignoreNote:''}</div>`;
+    }
+    if (update.headerNote) previewHtml += `<div style="font-size:12px;color:var(--text-3);margin-top:4px">口径：${update.headerNote}</div>`;
     if (update.remarks.length) previewHtml += `<div style="font-size:12px;color:var(--text-3);margin-top:4px">备注：${update.remarks.join('；')}</div>`;
     previewHtml += `<div style="font-size:12.5px;margin-top:8px">将生成 ${Object.keys(groups).length} 张表价（中转点：${Object.keys(groups).join('、')}）</div>`;
 
