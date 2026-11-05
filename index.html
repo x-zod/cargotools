@@ -1925,6 +1925,17 @@ function updateRateMatch() {
         const ruleAdj = applyDensityRule(s.densityRule, c.weight, densityRatio);
         const smallAdj = applySmallRule(r.smallRule, c.weight, c.volume);
         let final = base + adj + ruleAdj + smallAdj;
+        // 命中比重档相对平货价的减价（表内档位价已含重货减价时，如 1:300 散¥45 / 平散¥49 → 差 4）
+        // 仅用于展示标注与高亮（"重货-4"），不再重复扣减；要求表备注明写"重货"且非泡档，避免误标
+        let tierCut = 0;
+        {
+          const rmkAll = [r.remark, ...(r.remarks || []), s.remark].join('；');
+          if (/重货/.test(rmkAll) && densityUsed && densityUsed !== 'flat' && !/^</.test(String(densityUsed)) && r.densityPrices) {
+            const flatDp = r.densityPrices['flat'];
+            const flatP = flatDp ? (flatDp[effectiveWk] !== undefined ? flatDp[effectiveWk] : flatDp[wk]) : undefined;
+            if (flatP !== undefined && base < flatP) tierCut = +(flatP - base).toFixed(2);
+          }
+        }
         const ruleNote = densityRuleNote(s.densityRule);
         // 统配参考价：主价=主段散货；variants 取各参考档同档价（缺当前比重档时回退该段 flat 平货价）
         let vRefs = null;
@@ -1954,8 +1965,11 @@ function updateRateMatch() {
         // AA 普通表（HND/128直航，无自带 variants）：表级备注"托盘+2/KGS"固定加价，散货=主价、托盘=主价+加价，成对显示
         {
           const aaPlain = /^AA/i.test(s.airline || '') && !r.variants;
-          const remarkText = [r.remark, ...(r.remarks || []), tierNote, aaPlain ? (s.remark || '') : ''].join('；');
-          const pdM = remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+          const sRmk = s.remark || '';
+          // 表级备注纳入：AA 普通表，或表级备注为"标托+N"写法（DL 经HNL 等）
+          const remarkText = [r.remark, ...(r.remarks || []), tierNote, (aaPlain || /标托/.test(sRmk)) ? sRmk : ''].join('；');
+          // 托盘加价：优先"标托+N"（标准托盘写法，如"标托+4"），其次"托盘+N"；避免被表级旧备注的"托盘+2"抢先
+          const pdM = remarkText.match(/(?:标托|标准?托盘)\s*\+\s*(\d+(?:\.\d+)?)/) || remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
           const hasPal = vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k));
           if (pdM && !hasPal) {
             vRefs = vRefs || {};
@@ -1966,6 +1980,15 @@ function updateRateMatch() {
               vRefs[palLabel] = final + (+pdM[1]);
             } else {
               vRefs[palLabel] = base + (+pdM[1]) + adj;
+            }
+          }
+          // 已有托盘 variants（AA/DL 经HNL 等）时按"散货最终价 + 标托加价"校正：
+          // 旧解析器对托盘重货档多减 2（base+4-(scut+2)），已存入 localStorage 的旧表不会自动重算，展示层直接拉平
+          if (pdM && hasPal) {
+            const palKeys = Object.keys(vRefs).filter(k => /托盘$/.test(k));
+            const hasPalCut = /托\s*[-−]\s*\d/.test(remarkText);   // 表内另给"托-8"这类托盘专属减价时不覆盖
+            if (palKeys.length && !hasPalCut) {
+              palKeys.forEach(pk => { vRefs[pk] = final + (+pdM[1]); });
             }
           }
         }
@@ -2057,7 +2080,7 @@ function updateRateMatch() {
           base, final, adj, matchedDest: (r.dest||'').trim(),
           density: densityUsed, remark: fullRemark, neighborNote, variants: vRefs, service: entryService,
           pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType,
-          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote
+          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote, tierCut
         });
       } else {
         const availW = r.prices ? Object.keys(r.prices) : [];
@@ -2283,6 +2306,7 @@ function updateRateMatch() {
     const adjHits = [];
     if (sr && sr.cut && smallAdj < 0) adjHits.push(`小货-${sr.cut}`);
     if (ruleAdj < 0) adjHits.push(`重货-${-ruleAdj}`);
+    else if (m.tierCut > 0) adjHits.push(`重货-${m.tierCut}`);   // 表内比重档价已含重货减价（如 1:300 散 45 / 平散 49）
     const smallHit = adjHits.length > 0;
     const denLbl = m.density ? DENSITY_LABEL[m.density] : null;
     const isUC = /^UC/i.test(m.airline || '');
@@ -4745,7 +4769,7 @@ function parseUnifiedRateText(text) {
       wAll.forEach(w => { tDP.flat[w] = (w === 'w45') ? base + 4 + add45 : base + 4; });
       heavyDefs.forEach(d => {
         densityPrices[d.key] = {}; tDP[d.key] = {};
-        const po = dPal[d.key] !== undefined ? dPal[d.key] : (d.scut + 2);
+        const po = dPal[d.key] !== undefined ? dPal[d.key] : d.scut;
         wAll.forEach(w => { densityPrices[d.key][w] = (w === 'w45') ? base - d.scut + add45 : base - d.scut; });
         wAll.forEach(w => { tDP[d.key][w] = (w === 'w45') ? base + 4 - po + add45 : base + 4 - po; });
       });
@@ -4815,7 +4839,7 @@ function parseUnifiedRateText(text) {
         const tDP = { flat: toDP(base + 4) };
         heavyDefs.forEach(d => {
           densityPrices[d.key] = toDP(base - d.scut);
-          const po = hPal[d.key] !== undefined ? hPal[d.key] : (d.scut + 2);
+          const po = hPal[d.key] !== undefined ? hPal[d.key] : d.scut;
           tDP[d.key] = toDP(base + 4 - po);
         });
         return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark, gwRule: { t300: 200, tAll: 300 } };
