@@ -1696,12 +1696,15 @@ function priceFromRow(row, wk, effDk) {
 
   return { base, weightKey: effectiveWk, density: densityUsed, srcLabel };
 }
-// 统配文字版小货减价规则（row.smallRule 由 parseUnifiedRateText 生成）：小货(毛重≤kg 或 体积≤cbm 任一满足)在表价基础上 -cut；大货不减（表价=原文数字）
+// 统配文字版小货减价规则（row.smallRule 由 parseUnifiedRateText 生成）：小货在表价基础上 -cut；大货不减（表价=原文数字）
+// mode='and'（原文"500KG并且体积3方之内"：两个条件同时满足才算小货）；默认 'or'（"500KG或3CBM以下"：任一满足）
 function applySmallRule(smallRule, weight, volume) {
   if (!smallRule || !smallRule.cut) return 0;
   const w = Number(weight) || 0, v = Number(volume) || 0;
-  if (w <= smallRule.kg || (smallRule.cbm && v <= smallRule.cbm)) return -smallRule.cut;
-  return 0;
+  const hit = smallRule.mode === 'and'
+    ? (w <= smallRule.kg && smallRule.cbm && v <= smallRule.cbm)
+    : (w <= smallRule.kg || (smallRule.cbm && v <= smallRule.cbm));
+  return hit ? -smallRule.cut : 0;
 }
 // 取某行在指定重量档的价格：优先命中比重档 → 标准重量档 prices → flat 平货档（供相邻重量档参考价使用）
 function pickWeightPrice(row, dUsed, wKey) {
@@ -3778,8 +3781,8 @@ function parseUCTextUpdate(text) {
     // LAX swap space 标题行（仅独立短行才切换上下文，避免吞掉含该词的长备注）
     if (/^LAX\s*swap\s*space/i.test(seg)) { currentTransit = 'LAX'; return; }
 
-    // 其他行作为备注
-    if (seg && !/^[A-Z]{3}-[A-Z]{3}/.test(seg) && !/^[A-Z]{3}\s*转的点/.test(seg)) {
+    // 其他行作为备注（版本声明类句子如"已再减1，这个为准"属口径说明，不进表价备注）
+    if (seg && !/^[A-Z]{3}-[A-Z]{3}/.test(seg) && !/^[A-Z]{3}\s*转的点/.test(seg) && !/为准|为基准|已再\s*减/.test(seg)) {
       result.remarks.push(seg);
     }
   }
@@ -3833,7 +3836,9 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         });
         newRow.prices = allPrices;
         newRow.densityPrices = dp;
-        newRow.remarks.push('文字版更新:' + textUpdate.date);
+        // 同一生效日多次导入（如完整版后再补一条单段覆盖）时备注去重
+        const updNote = '文字版更新:' + textUpdate.date;
+        if (!newRow.remarks.includes(updNote)) newRow.remarks.push(updNote);
         updated = true;
       }
     } else if (meta.type === 'hubAdd') {
@@ -4837,6 +4842,27 @@ $('btnQuickSearch').addEventListener('click', () => {
 });
 
 // ---------- 统配表价文字解析（托盘/散货 × 服务等级 × 重泡比重） ----------
+// 小货减价规则：kg 门槛 / 体积门槛 / 条件关系(and|or) / 减价额
+// 样例："单票500KG并且体积3方之内 单价-2/k"（and）、"500kg或3cbm以下平货 -1/K"（or）、"(500KG 以下小货 - 1)"
+function parseSmallRule(t) {
+  const s = String(t || '').replace(/\s+/g, ' ');
+  if (!/小货/.test(s)) return null;
+  const cutM = s.match(/单价\s*[-－]\s*(\d+(?:\.\d+)?)\s*\/?\s*[kK]/)
+            || s.match(/[-－]\s*(\d+(?:\.\d+)?)\s*\/\s*[kK]/)
+            || s.match(/小货[^0-9]{0,10}[-－]\s*(\d+(?:\.\d+)?)/);
+  if (!cutM) return null;
+  const cut = +cutM[1];
+  let kg = 500, cbm = 0, mode = 'or';
+  const both = s.match(/(\d+)\s*(?:KG|kg|公斤)[\s\S]{0,26}?(?:并且|且|同时)[\s\S]{0,18}?(\d+(?:\.\d+)?)\s*(?:方|CBM|cbm|立方)/);
+  if (both) { kg = +both[1]; cbm = +both[2]; mode = 'and'; }
+  else {
+    const kgM = s.match(/(\d+)\s*(?:KG|kg|公斤)/);
+    if (kgM) kg = +kgM[1];
+    const cbmM = s.match(/(\d+(?:\.\d+)?)\s*(?:CBM|cbm|立方|方)/);
+    if (cbmM) cbm = +cbmM[1];
+  }
+  return { kg, cbm, cut, mode };
+}
 // 服务段动态识别（1-2天 / 3-4天 / 1-3天 / 5-7天 等）；主价 = 最后一段（慢服务）；variants = 各服务段 散货/托盘
 // 无 "X-Y天" 段标签时按单段解析；目的港排除出发港（PVG 等）取价格块前的三字码
 function parseUnifiedRateText(text) {
@@ -4860,6 +4886,7 @@ function parseUnifiedRateText(text) {
   }
   // 统配表价快速通道：有托盘/散货+价格，或有重托/重散/泡托/泡散，直接走统配表解析
   const isUnified = /托盘\s*\d|散货\s*\d|重托|重散|泡托|泡散/.test(text);
+  const smallRuleParsed = parseSmallRule(rawText);
 
   // ===== DL 经HNL 分组报价格式（裸运费） =====
   if (/裸运费|平散\s*\d+\s*裸|\+45级/.test(text) && !isUnified) {
@@ -5107,7 +5134,16 @@ function parseUnifiedRateText(text) {
     const bubOnly = /仅限\s*([A-Z]{3}(?:\s*\/\s*[A-Z]{3})*)/i.exec(text);
     const bubCodes = bubOnly ? bubOnly[1].split(/\s*\/\s*/) : [];
     const hk = Object.keys(bub).map(Number).sort((a, b) => b - a);
-    const bubAvail = bubCodes.length ? `泡货限${bubCodes.join('/')}，100K起` : '';
+    const bubAvail = bubCodes.length ? `泡货100K起以上仅限${bubCodes.join('/')}` : '';
+    let heavyCode = '';
+    {
+      const hi = text.indexOf('重货超低价');
+      if (hi >= 0) {
+        const before = text.slice(Math.max(0, hi - 120), hi);
+        const mm = /([A-Z]{3})[^A-Z]*$/.exec(before);
+        if (mm) heavyCode = mm[1];
+      }
+    }
     const out = rows.map(r => {
       const parts = [{ key: '1:300+', min: 300 }, { key: '1:500+', min: 500 }, { key: '1:800+', min: 800 }, { key: 'flat', flat: true }];
       const densityPrices = { '1:300+': toDP(r.m300), '1:500+': toDP(r.m500), '1:800+': toDP(r.m800), flat: toDP(r.flatV) };
@@ -5118,6 +5154,7 @@ function parseUnifiedRateText(text) {
         remarks.push(bubAvail);
         bulkMinGw = 100;
       }
+      if (heavyCode === r.c) remarks.push('重货超低价');
       return { dest: r.c, densityDef: buildDensityDef(parts), densityPrices, service: '散货', remark: remarks.join('；'), bulkMinGw };
     });
     if (out.length) return { dest: out.map(r => r.dest).join('/'), date, ok: true, rows: out };
@@ -5319,9 +5356,12 @@ function parseUnifiedRateText(text) {
   // 过滤真正含价格（托盘或散货）的段
   const valid = parsed.filter(p => p.palBase !== null || p.bulkBase !== null);
   if (!valid.length) return { dest, date, ok: false, rows: [] };
-  // 主价 = 最后一段（慢服务，如 3-4天 / 5-7天）
-  const main = valid[valid.length - 1];
-  const others = valid.slice(0, -1);
+  // 主价 = 上海/直达段里最慢的一段（异地起运段如「厦门K4 鄂州O3」不能顶掉上海主价）；无上海段才取最后一段
+  const shIdx = [];
+  valid.forEach((p, i) => { if (/上海|直达/.test(p.label || '')) shIdx.push(i); });
+  const mainIdx = shIdx.length ? shIdx[shIdx.length - 1] : valid.length - 1;
+  const main = valid[mainIdx];
+  const others = valid.filter((_, i) => i !== mainIdx);
 
   // 比重阶梯：动态从解析到的比重 key 构建（泡档 <1:N、平档 flat、重档 1:N+，含 1:1000 等）
   const dpKeys = new Set();
@@ -5360,12 +5400,16 @@ function parseUnifiedRateText(text) {
     if (o.palBase !== null) variants[`${o.label}托盘`] = { densityPrices: toDensityPrices(densityFor(o, true)) };
   });
 
+  const smallNote = smallRuleParsed
+    ? `单票${smallRuleParsed.kg}KG${smallRuleParsed.cbm ? (smallRuleParsed.mode === 'and' ? '且' : '或') + smallRuleParsed.cbm + 'CBM' : ''}以内小货-${smallRuleParsed.cut}`
+    : '';
   const row = {
     dest, densityDef,
     densityPrices: toDensityPrices(mainDensity),
     variants: Object.keys(variants).length ? variants : null,
     service,
-    remark: `${dest} 统配`
+    remark: [`${dest} 统配`, smallNote].filter(Boolean).join('；'),
+    smallRule: smallRuleParsed || undefined
   };
   return { dest, date, ok: !!mainDensity['flat'], rows: [row] };
 }
@@ -5430,9 +5474,18 @@ $('btnParsePasted').addEventListener('click', () => {
     if ($('rateTransit')) $('rateTransit').value = meta.transit || '';
     if (res.date && $('rateDate')) $('rateDate').value = res.date;
     const vNames = res.rows[0].variants ? Object.keys(res.rows[0].variants).join(' / ') : '无参考价';
+    // 文本里出现多个不同生效日时提示（如 JFK：上海 11-12 起、厦门K4/鄂州O3 11-05 起）
+    const dms = [...text.matchAll(/(\d{1,2})\s*[\/月]\s*(\d{1,2})\s*[号日]?/g)]
+      .filter(m => +m[1] >= 1 && +m[1] <= 12 && +m[2] >= 1 && +m[2] <= 31)
+      .map(m => `${+m[1]}-${String(+m[2]).padStart(2, '0')}`)
+      .filter((v, i, a) => a.indexOf(v) === i);
+    const dateWarn = dms.length > 1
+      ? `<div style="font-size:12px;color:#b45309;margin-top:4px">文中出现多个生效日（${dms.join(' / ')}），本表按 <b>${res.date || '未识别'}</b> 生效；异地起运段请单独建表或手改日期</div>`
+      : '';
     $('pastedPreview').innerHTML =
       `<div style="font-size:13px;color:var(--green)">✔ 识别到 <b>${res.dest}</b> 统配表价（生效 ${res.date||'未识别'}）</div>` +
-      `<div style="font-size:12.5px;color:var(--text-2);margin-top:4px">主价 = 3-4天散货；参考价：${vNames}</div>` +
+      `<div style="font-size:12.5px;color:var(--text-2);margin-top:4px">主价 = ${res.rows[0].service || '散货'}；参考价：${vNames}</div>` +
+      dateWarn +
       `<div style="font-size:12px;color:var(--text-3);margin-top:4px">已自动填入${meta.airline?('航司 <b>'+meta.airline+'</b> '):'航司'}${meta.transit?('中转 <b>'+meta.transit+'</b> '):''}${meta.airline||meta.transit?'，确认后点「保存表价」入库。':'（未识别到航司/中转，请手动填写）'}</div>`;
     toast(`✔ 识别到 ${res.dest} 统配表价`);
   } catch (e) {
@@ -5523,15 +5576,55 @@ $('btnUCTextUpdate').addEventListener('click', () => {
 });
 
 function openRateDetail(id) {
-  const s = loadRates().find(x => x.id === id);
+  const all = loadRates();
+  const s = all.find(x => x.id === id);
   if (!s) return;
   const adj = currentAdjFor(s.airline, s.transit);
+  // 找同航司+同中转点最近一张已过期表，做新旧对比
+  const prev = all.filter(x =>
+    x.id !== s.id &&
+    x.airline === s.airline &&
+    (x.transit || '') === (s.transit || '') &&
+    x.expired === true &&
+    (x.date || '') < (s.date || '')
+  ).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+  // prevMap[dest][densityKey][weightKey] = 上一版价格
+  const prevMap = {};
+  if (prev && prev.rows) {
+    prev.rows.forEach(r => {
+      prevMap[r.dest] = prevMap[r.dest] || {};
+      const dp = r.densityPrices || {};
+      Object.keys(dp).forEach(dk => {
+        prevMap[r.dest][dk] = dp[dk];
+      });
+    });
+  }
+  // 汇总涨/跌/持平/新增
+  let diffSummary = null;
+  if (prev) {
+    let up = 0, down = 0, same = 0, added = 0;
+    (s.rows || []).forEach(r => {
+      const dp = r.densityPrices || {};
+      Object.keys(dp).forEach(dk => {
+        Object.keys(dp[dk]).forEach(wk => {
+          const oldP = prevMap[r.dest] && prevMap[r.dest][dk] ? prevMap[r.dest][dk][wk] : undefined;
+          if (oldP === undefined) { added++; return; }
+          const d = dp[dk][wk] - oldP;
+          if (d > 0) up++; else if (d < 0) down++; else same++;
+        });
+      });
+    });
+    diffSummary = `对比上一版（${prev.airline} ${prev.date}）：涨 <b style="color:var(--red)">${up}</b> 档 · 跌 <b style="color:var(--green)">${down}</b> 档 · 持平 ${same} 档${added ? ` · 新增 ${added} 档` : ''}`;
+  }
   $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时优惠 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
   let html = '';
   if (adj !== 0) {
     html += `<div style="background:var(--accent-soft);color:var(--accent);padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px">
       限时优惠已生效：<b>${adj>0?'+':''}${adj} 元/kg</b>
     </div>`;
+  }
+  if (diffSummary) {
+    html += `<div style="background:var(--bg-soft,#f5f7fa);padding:8px 14px;border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--text-2)">${diffSummary}</div>`;
   }
   if (s.image) {
     html += `<div style="margin-bottom:12px"><img src="${s.image}" style="max-width:100%;border:1px solid var(--border);border-radius:6px"></div>`;
@@ -5583,10 +5676,20 @@ function openRateDetail(id) {
       html += `<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th><th>比重</th>`;
       weightKeys.forEach(k => html += `<th>${labels[k]}</th>`);
       html += `</tr></thead><tbody>`;
-      const cell = (v, k) => {
+      const cell = (v, k, dest, dk) => {
         if (v === undefined) return '<td>-</td>';
-        if (k === 'w45' || adj === 0) return `<td>${v}</td>`;
-        return `<td>${v + adj} <small style="color:var(--text-3);text-decoration:line-through">${v}</small></td>`;
+        let base = v, strike = '';
+        if (adj !== 0 && k !== 'w45') {
+          base = v + adj;
+          strike = ` <small style="color:var(--text-3);text-decoration:line-through">${v}</small>`;
+        }
+        let diff = '';
+        if (dest && dk && prevMap[dest] && prevMap[dest][dk] && prevMap[dest][dk][k] !== undefined) {
+          const d = v - prevMap[dest][dk][k];
+          if (d > 0) diff = ` <small style="color:var(--red);font-weight:600">↑${d}</small>`;
+          else if (d < 0) diff = ` <small style="color:var(--green);font-weight:600">↓${-d}</small>`;
+        }
+        return `<td>${base}${strike}${diff}</td>`;
       };
       const isShanghaiAA = /上海AA/.test(s.airline || '');
       const isAA128 = /AA128/.test(s.airline || '');
@@ -5601,12 +5704,12 @@ function openRateDetail(id) {
         const span = (showMain ? 1 : 0) + densityKeys.length;
         if (showMain) {
           html += `<tr><td rowspan="${span}"><b>${r.dest}</b></td><td>${mainLabel}</td>`;
-          weightKeys.forEach(k => html += cell(mainPrices ? mainPrices[k] : undefined, k));
+          weightKeys.forEach(k => html += cell(mainPrices ? mainPrices[k] : undefined, k, r.dest, hasFlat ? 'flat' : null));
           html += `</tr>`;
         }
         densityKeys.forEach(dk => {
           html += `<tr>${!showMain ? `<td rowspan="${span}"><b>${r.dest}</b></td>` : ''}<td>${DENSITY_LABEL[dk]||dk}</td>`;
-          weightKeys.forEach(k => html += cell(dp[dk][k], k));
+          weightKeys.forEach(k => html += cell(dp[dk][k], k, r.dest, dk));
           html += `</tr>`;
         });
       });
