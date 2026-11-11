@@ -710,7 +710,7 @@ if (typeof ExcelJS === 'undefined') {
   </div>
 
   <div class="card">
-    <div class="card-title">导入新表价</div>
+    <div class="card-title">导入表价</div>
     <div class="row row-3">
       <div class="field" style="margin:0">
         <input id="rateAirline" placeholder="填写航司代码，如：AA，DL，LH">
@@ -729,18 +729,26 @@ if (typeof ExcelJS === 'undefined') {
     </div>
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-primary" id="btnImportExcel">选择 Excel 文件导入</button>
-      <button class="btn btn-ghost" id="btnManualRate">手动新增</button>
-      <button class="btn btn-ghost" id="btnUploadImg">上传截图存证</button>
+      <button class="btn btn-ghost" id="btnOpenPasteRate">识别文字表价</button>
+      <button class="btn btn-ghost" id="btnOpenTransfer">转运费</button>
       <input type="file" id="excelFile" accept=".xlsx,.xls" style="display:none">
-      <input type="file" id="imgFile" accept="image/*" style="display:none">
+    </div>
+    <div id="panePaste" style="display:none;margin-top:10px">
+      <textarea id="pastedRate" rows="4" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:13px" placeholder="粘贴航司发的文字表价..."></textarea>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-ghost btn-sm" id="btnParsePasted">识别统配表价</button>
+        <button class="btn btn-ghost btn-sm" id="btnUCTextUpdate" style="background:var(--accent-soft);color:var(--accent)">UC手写版更新</button>
+      </div>
+      <div id="pastedPreview" style="margin-top:10px"></div>
+    </div>
+    <div id="paneTransfer" style="display:none;margin-top:10px">
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="btn btn-sm" id="btnTransferLH" style="background:var(--accent);color:#fff">LH</button>
+        <button class="btn btn-sm" id="btnTransferY8">Y8</button>
+      </div>
+      <div id="transferList"></div>
     </div>
   </div>
-
-  <!-- 转运费（联程附加费）：目的港价格 = hub 港表价 + 转运费（内置固定，无需维护） -->
-  <details class="card" id="transferCard" style="margin-top:12px">
-    <summary class="card-title" style="cursor:pointer">LH转运费</summary>
-    <div id="transferList" style="margin-top:4px"></div>
-  </details>
 
   <div id="ratePreviewCard" class="card" style="display:none">
     <div class="card-title">预览导入数据（确认后点保存）</div>
@@ -752,18 +760,6 @@ if (typeof ExcelJS === 'undefined') {
       <button class="btn btn-ghost" id="btnCancelRate">取消</button>
     </div>
   </div>
-
-  <details class="card" style="padding:0">
-    <summary style="padding:14px 16px;cursor:pointer;font-weight:600">粘贴识别文字版表价（实验功能）</summary>
-    <div style="padding:0 16px 16px">
-      <textarea id="pastedRate" rows="4" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:13px" placeholder="粘贴航司发的文字表价..."></textarea>
-      <div class="btn-row">
-        <button class="btn btn-ghost btn-sm" id="btnParsePasted">识别统配表价</button>
-        <button class="btn btn-ghost btn-sm" id="btnUCTextUpdate" style="background:var(--accent-soft);color:var(--accent)">UC手写版更新</button>
-      </div>
-      <div id="pastedPreview" style="margin-top:10px"></div>
-    </div>
-  </details>
 </div>
 
 <!-- ============ 视图：成本计算 ============ -->
@@ -896,14 +892,14 @@ if (typeof ExcelJS === 'undefined') {
   </div>
 </div>
 
-<!-- 限时优惠管理弹窗 -->
+<!-- 限时调价管理弹窗 -->
 <div class="modal-mask" id="adjModalMask">
   <div class="modal">
     <div class="modal-head">
-      <h3>限时优惠（今日表价）</h3>
+      <h3>限时调价（今日表价）</h3>
       <button class="modal-close" id="adjModalClose">×</button>
     </div>
-    <div class="card-title" style="margin-top:4px">添加新优惠</div>
+    <div class="card-title" style="margin-top:4px">添加新调价</div>
     <div class="row row-3">
       <div class="field" style="margin:0">
         <input id="adjAirline" placeholder="航司代码，如 AA">
@@ -921,9 +917,9 @@ if (typeof ExcelJS === 'undefined') {
       </div>
     </div>
     <div class="btn-row" style="margin-top:10px">
-      <button class="btn btn-accent btn-sm" id="btnAddAdj">添加优惠</button>
+      <button class="btn btn-accent btn-sm" id="btnAddAdj">添加调价</button>
     </div>
-    <div class="card-title" style="margin:18px 0 8px">当前生效优惠</div>
+    <div class="card-title" style="margin:18px 0 8px">当前生效调价</div>
     <div id="adjListBody">
     <div class="similar-item">
       <div class="similar-left">
@@ -934,7 +930,7 @@ if (typeof ExcelJS === 'undefined') {
       <button class="btn btn-ghost btn-sm" data-id="imv61ytzzstec" style="color:var(--red)">删</button>
     </div>
   </div>
-    <div class="empty" id="adjListEmpty" style="padding: 14px; display: none;">当前没有生效优惠</div>
+    <div class="empty" id="adjListEmpty" style="padding: 14px; display: none;">当前没有生效调价</div>
   </div>
 </div>
 
@@ -2834,7 +2830,7 @@ $('importFile').addEventListener('change', (e) => {
         autoExpireRates(mergedRates);
         saveRates(mergedRates);
       }
-      // 合并优惠
+      // 合并调价
       if (adjustments.length) {
         const curA = loadAdjs();
         const aMap = {};
@@ -2852,7 +2848,7 @@ $('importFile').addEventListener('change', (e) => {
 
 $('btnWipe').addEventListener('click', () => {
   if (!confirm('确定清空全部数据？建议先导出备份。')) return;
-  if (!confirm('再次确认：所有询价记录、表价、优惠都将被删除，不可恢复！')) return;
+  if (!confirm('再次确认：所有询价记录、表价、调价都将被删除，不可恢复！')) return;
   localStorage.removeItem(STORE_KEY);
   localStorage.removeItem('af_rate_sheets_v1');
   localStorage.removeItem('af_adjustments_v1');
@@ -4295,33 +4291,20 @@ let parsedRows = null; // 预览缓存
 $('btnImportExcel').addEventListener('click', () => $('excelFile').click());
 
 // 手动新增表价
-$('btnManualRate').addEventListener('click', () => {
-  const airline = $('rateAirline').value.trim() || prompt('航司代码（如 LH / CZ）：');
-  if (!airline) return;
-  const date = $('rateDate').value || todayStr();
-  const dest = prompt('目的港三字代码（如 MUC / FRA / LAX）：');
-  if (!dest) return;
-  const w100 = parseFloat(prompt('100KG档价格（元/kg，没有填0）：') || 0);
-  const w300 = parseFloat(prompt('300KG档价格：') || 0);
-  const w500 = parseFloat(prompt('500KG档价格：') || 0);
-  const w1000 = parseFloat(prompt('1000KG档价格：') || 0);
-  const transit = $('rateTransit') ? ($('rateTransit').value.trim() || '') : '';
-  const sheets = loadRates();
-  let sheet = sheets.find(s => s.airline === airline && (s.transit || '') === transit && s.date === date);
-  if (!sheet) {
-    sheet = { id: uid(), airline, transit, date, rows: [], img: null };
-    sheets.push(sheet);
-  }
-  const prices = {};
-  if (w100 > 0) prices.w100 = w100;
-  if (w300 > 0) prices.w300 = w300;
-  if (w500 > 0) prices.w500 = w500;
-  if (w1000 > 0) prices.w1000 = w1000;
-  sheet.rows.push({ dest: dest.toUpperCase(), prices, remark: '手动录入' });
-  saveRates(sheets);
-  renderRateList(); renderAdjList(); updateAdjBanner();
-  toast(`已添加 ${dest} 到 ${airline}${transit?'·'+transit:''} 表价`);
-});
+// 切主面板：识别文字表价 / 转运费（默认收起；再点当前按钮收起）
+let activePane = null;
+function switchPane(p) {
+  activePane = (activePane === p) ? null : p;
+  const pp = $('panePaste'), pt = $('paneTransfer');
+  const bp = $('btnOpenPasteRate'), bt = $('btnOpenTransfer');
+  if (pp) pp.style.display = activePane === 'paste' ? '' : 'none';
+  if (pt) pt.style.display = activePane === 'transfer' ? '' : 'none';
+  if (bp) bp.setAttribute('style', activePane === 'paste' ? 'background:var(--accent);color:#fff' : '');
+  if (bt) bt.setAttribute('style', activePane === 'transfer' ? 'background:var(--accent);color:#fff' : '');
+  if (activePane === 'transfer') renderTransferList();
+}
+if ($('btnOpenPasteRate')) $('btnOpenPasteRate').addEventListener('click', () => switchPane('paste'));
+if ($('btnOpenTransfer')) $('btnOpenTransfer').addEventListener('click', () => switchPane('transfer'));
 $('excelFile').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   if (!f) return;
@@ -4486,46 +4469,6 @@ $('btnSaveRate').addEventListener('click', () => {
   renderRateList();
 });
 
-// 截图上传（存证）
-$('btnUploadImg').addEventListener('click', () => $('imgFile').click());
-$('imgFile').addEventListener('change', (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  if (f.size > 2 * 1024 * 1024) {
-    toast('图片太大（>2MB），请压缩后再传');
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    // 存到一条新牌价里（用户手填航司）
-    const airline = $('rateAirline').value.trim().toUpperCase();
-    if (!airline) { toast('请先在上面填航司代码'); return; }
-    const sheet = {
-      id: uid(),
-      airline,
-      transit: $('rateTransit') ? ($('rateTransit').value.trim() || '') : '',
-      date: $('rateDate').value || todayStr(),
-      expiry: $('rateExpiry').value || '',
-      origin: 'PVG',
-      rows: [],
-      image: ev.target.result, // base64
-      note: '手动录入，请点开后填价格',
-      created_at: new Date().toISOString()
-    };
-    const all = loadRates();
-    // 同航司+同中转点上传新表价 → 该中转点旧表价自动过期
-    all.forEach(s => {
-      if (s.airline === airline && (s.transit || '') === (sheet.transit || '') && s.id !== sheet.id && s.expired !== true) s.expired = true;
-    });
-    all.unshift(sheet);
-    saveRates(all);
-    toast('截图已存证，点下面列表里这条去填价格');
-    renderRateList();
-  };
-  reader.readAsDataURL(f);
-  e.target.value = '';
-});
-
 // 牌价列表
 let _rateCategory = 'all';
 function classifyRate(s) {
@@ -4666,22 +4609,98 @@ function getLHTransferFee(dest) {
   const f = LH_TRANSFER_FEES.fees[String(dest || '').toUpperCase()];
   return f !== undefined ? { fee: f, hub: LH_TRANSFER_FEES.hub } : null;
 }
-// 只读展示内置转运费（按费用分组）
+
+// Y8（金鹏航空 Suparna）AMS 卡车转运池：AMS 主表价 + 公布运价/kg（最低收费兜底）。
+// 数据来源：2024卡车转运表.pdf（Walllenborn 承运，生效 2024-08-01）。
+// 字段：min=最低收费 RMB/票；rate=公布运价 RMB/kg；truck=整车费用 RMB/辆。
+// 激活条件：仅当库中存在航司=Y8 且中转点=AMS 的主表价时，目的港命中本池才叠加；
+//          主表未导入前本常量只作数据备查，不参与匹配。整车/特种货另议，不在自动计算内。
+const Y8_AMS_TRUCKING = {
+  hub: 'AMS', airline: 'Y8',
+  rows: [
+    ['ABZ',2700,8.1,53000],['ALC',3500,6.7,41900],['AOI',3000,5.5,54200],['ATH',6800,7.3,71200],
+    ['BCN',1700,4,24100],['BEG',6200,6.3,49500],['BER',1800,3.2,16000],['BFS',3000,7,52000],
+    ['BGO',2500,5.8,51600],['BHX',2100,4.1,27100],['BIO',2500,6.1,25300],['BLL',1400,2.5,16900],
+    ['BLQ',2500,5.2,30900],['BOD',2000,4,21900],['BRE',1400,2,8900],['BRN',2500,2.9,25500],
+    ['BRS',2200,4.1,33900],['BRU',1000,1,4500],['BSL',1600,2.3,11200],['BUD',3000,4.3,28500],
+    ['BUH',5700,6.1,49400],['CDG',1000,1.5,8000],['CGN',1000,1.5,6000],['CPH',1100,2.7,20900],
+    ['CWL',2000,4.4,32300],['DRS',2000,3.2,22000],['DTM',1100,1.5,6000],['DUB',2200,6.2,42700],
+    ['DUS',1000,1.1,5000],['EDI',2600,6.2,43900],['EMA',2200,4.1,3200],['FCO',2500,5.2,48000],
+    ['FLR',2500,4.7,36800],['FMO',1300,1.6,8000],['FRA',1000,1.5,7500],['GLA',2300,5.5,43900],
+    ['GOA',3800,4.3,29900],['GOT',1800,3.5,28300],
+    ['GRZ',2600,4.6,35200],['GVA',2000,3.4,21400],['HAJ',1200,1.6,9500],['HAM',1200,1.6,9600],
+    ['HEL',2100,5.3,46800],['HHN',2000,2.1,9900],['LEJ',2000,3.5,17700],['LGG',1200,1.1,5600],
+    ['LGW',1500,2.7,23300],['LHR',1400,3,20000],['LIL',1300,1.5,6500],['LIN',2000,4,23400],
+    ['LIS',2800,5.5,50600],['LJU',3800,4.9,26200],['LTN',2000,4.1,26100],['LUX',1100,1.2,7400],
+    ['LYS',1400,3,16000],['MAD',1800,4.5,26500],['MAN',1700,4,26000],['MLH',1500,2.6,18200],
+    ['MMA',1300,2.6,22300],['MPL',2000,4.1,30400],['MRS',2500,4.1,22100],['MST',1000,1.1,4500],
+    ['MUC',1400,2.5,15700],['MXP',1500,2.7,18400],['NAP',3200,5.3,52600],['NCE',2000,4.4,30400],
+    ['NCL',2400,4.8,40200],['NRK',1800,4.7,36700],['NTE',2000,3.6,19100],['NUE',1300,2.5,12100],
+    ['OPO',2800,7.2,48400],['ORK',2500,6.7,53700],['ORY',2600,2.1,11800],['OSL',1600,3.9,33100],
+    ['OST',1400,2.2,12100],['PIK',2000,4.9,40100],['PRG',2000,3,16100],['PSA',2800,5.1,36800],
+    ['RTM',1000,1.1,4000],['SCN',2000,2.5,18900],['SNN',2800,6.4,55800],['STN',1800,3.9,24900],
+    ['STO',1800,4.1,34500],['STR',1400,2.5,10900],['SVG',2300,5.8,62300],['SXB',1500,2.3,10700],
+    ['SZG',3000,4.3,28800],['TLS',2900,4.3,28400],['TRN',2300,4.4,27900],['VCE',2700,5.1,31700],
+    ['VIE',2000,3,21900],['VLC',3000,5.9,29300],['VRN',2800,4.9,31000],['WAW',2600,3.9,21900],
+    ['ZAZ',4500,6.2,31700],['ZRH',2800,3.3,31700]
+  ]
+};
+// 索引：dest → {min, rate, truck}
+const Y8_AMS_TRUCKING_IDX = (() => {
+  const m = {};
+  Y8_AMS_TRUCKING.rows.forEach(r => { m[r[0]] = { min: r[1], rate: r[2], truck: r[3] }; });
+  return m;
+})();
+// 查 Y8 AMS 卡车转运费；命中返回 {min, rate, truck, hub}，否则 null
+function getY8AmsTrucking(dest) {
+  const f = Y8_AMS_TRUCKING_IDX[String(dest || '').toUpperCase()];
+  return f ? { ...f, hub: Y8_AMS_TRUCKING.hub } : null;
+}
+// 是否存在 Y8 AMS 主表（激活开关）：库中至少一张 Y8 且含 AMS 行
+function hasY8AmsMasterTable() {
+  return loadRates().some(s => {
+    if (!/^Y8$|金鹏|Suparna/i.test(s.airline || '')) return false;
+    if (s.transit && !/AMS/i.test(s.transit)) return false;
+    return (s.rows || []).some(r => /AMS/i.test(r.dest || ''));
+  });
+}
+// 只读展示内置转运费（LH / Y8 按钮切换）
+let activeTransfer = 'LH';
+function _transferLines(g) {
+  return Object.keys(g).sort((a, b) => a - b).map(f =>
+    `<div style="font-size:12px;margin:2px 0;color:var(--text-2)"><b style="display:inline-block;min-width:3.6em;text-align:right;color:var(--accent)">+${f}</b>　${g[f].join('/')}</div>`
+  ).join('');
+}
 function renderTransferList() {
   const box = $('transferList');
   if (!box) return;
+  // 按钮高亮
+  const btnLH = $('btnTransferLH'), btnY8 = $('btnTransferY8');
+  if (btnLH && btnY8) {
+    const on = 'background:var(--accent);color:#fff';
+    const off = '';
+    btnLH.setAttribute('style', activeTransfer === 'LH' ? on : off);
+    btnY8.setAttribute('style', activeTransfer === 'Y8' ? on : off);
+  }
+  if (activeTransfer === 'Y8') {
+    const g = {};
+    Y8_AMS_TRUCKING.rows.forEach(r => { const [dest, , rate] = r; (g[rate] = g[rate] || []).push(dest); });
+    box.innerHTML = _transferLines(g) + `<div style="font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.6">
+      最低收费 RMB/票；整车费用另议（见原表）；数据来源 2024 卡车转运表（Walllenborn，2024-08-01 生效）。
+    </div>`;
+    return;
+  }
+  // LH（默认）
   const g = {};
   Object.keys(LH_TRANSFER_FEES.fees).forEach(d => { const f = LH_TRANSFER_FEES.fees[d]; (g[f] = g[f] || []).push(d); });
-  // LH 直达港（LH 表目的港，如 MUC/FRA）并入 +0 组，展示为 "+0 MUC/FRA/VIE"
   const direct = [];
   loadRates().forEach(s => { if (s.airline === (LH_TRANSFER_FEES.airline || '')) (s.rows || []).forEach(r => String(r.dest || '').split(/[\/\s]+/).forEach(d => { if (d && d.length === 3) direct.push(d.toUpperCase()); })); });
   if (direct.length) g[0] = Array.from(new Set([...direct, ...(g[0] || [])]));
-  const lines = Object.keys(g).sort((a, b) => a - b).map(f =>
-    `<div style="font-size:12px;margin:2px 0;color:var(--text-2)"><b style="color:var(--accent)">+${f}</b>　${g[f].join('/')}</div>`
-  ).join('');
-  box.innerHTML = lines;
+  box.innerHTML = _transferLines(g);
 }
-
+// 转运费按钮切换
+if ($('btnTransferLH')) $('btnTransferLH').addEventListener('click', () => { activeTransfer = 'LH'; renderTransferList(); });
+if ($('btnTransferY8')) $('btnTransferY8').addEventListener('click', () => { activeTransfer = 'Y8'; renderTransferList(); });
 $('btnAddAdj').addEventListener('click', () => {
   const airline = $('adjAirline').value.trim().toUpperCase();
   if (!airline) { toast('请填航司代码'); return; }
@@ -4689,7 +4708,7 @@ $('btnAddAdj').addEventListener('click', () => {
   const delta = parseFloat($('adjDelta').value);
   if (isNaN(delta)) { toast('请填调整金额（如 -5 或 +3）'); return; }
   const scope = transit ? `${airline}·${transit}` : `${airline}（全航司）`;
-  if (!confirm(`确认对 ${scope} 添加限时优惠 ${delta>0?'+':''}${delta} 元/kg？\n生效后将叠加到该范围表价上参与匹配。`)) return;
+  if (!confirm(`确认对 ${scope} 添加限时调价 ${delta>0?'+':''}${delta} 元/kg？\n生效后将叠加到该范围表价上参与匹配。`)) return;
   const adj = {
     id: uid(),
     airline,
@@ -4702,7 +4721,7 @@ $('btnAddAdj').addEventListener('click', () => {
   const all = loadAdjs();
   all.unshift(adj);
   saveAdjs(all);
-  toast(`已添加 ${scope} ${delta>0?'+':''}${delta} 限时优惠`);
+  toast(`已添加 ${scope} ${delta>0?'+':''}${delta} 限时调价`);
   $('adjAirline').value = '';
   if ($('adjTransit')) $('adjTransit').value = '';
   $('adjDelta').value = '';
@@ -4730,7 +4749,7 @@ function renderAdjList() {
     </div>
   `).join('');
   box.querySelectorAll('button[data-id]').forEach(b => b.addEventListener('click', () => {
-    if (!confirm('删除这条限时优惠？')) return;
+    if (!confirm('删除这条限时调价？')) return;
     saveAdjs(loadAdjs().filter(x => x.id !== b.dataset.id));
     renderAdjList();
     renderRateList();
@@ -4738,10 +4757,10 @@ function renderAdjList() {
   }));
 }
 
-// banner 已移除，保留空函数兼容调用点（优惠入口在每行"优惠"按钮）
+// banner 已移除，保留空函数兼容调用点（调价入口在每行"调价"按钮）
 function updateAdjBanner() {}
 
-// 限时优惠弹窗开关（入口在已导入表价每行的"优惠"按钮）
+// 限时调价弹窗开关（入口在已导入表价每行的"调价"按钮）
 $('adjModalClose').addEventListener('click', () => $('adjModalMask').classList.remove('show'));
 $('adjModalMask').addEventListener('click', (e) => {
   if (e.target === $('adjModalMask')) $('adjModalMask').classList.remove('show');
@@ -4825,7 +4844,7 @@ $('btnQuickSearch').addEventListener('click', () => {
     const adj = currentAdjFor(s.airline, s.transit);
     let part = '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
     part += '<b>' + s.airline + '</b> ' + s.date;
-    if (adj !== 0) part += ' <span style="color:var(--accent)">(优惠' + (adj > 0 ? '+' : '') + adj + ')</span>';
+    if (adj !== 0) part += ' <span style="color:var(--accent)">(调价' + (adj > 0 ? '+' : '') + adj + ')</span>';
     rows.forEach(r => {
       part += rowPrices(r.prices, '标准', adj);
       const dp = r.densityPrices || {};
@@ -5616,11 +5635,11 @@ function openRateDetail(id) {
     });
     diffSummary = `对比上一版（${prev.airline} ${prev.date}）：涨 <b style="color:var(--red)">${up}</b> 档 · 跌 <b style="color:var(--green)">${down}</b> 档 · 持平 ${same} 档${added ? ` · 新增 ${added} 档` : ''}`;
   }
-  $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时优惠 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
+  $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时调价 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
   let html = '';
   if (adj !== 0) {
     html += `<div style="background:var(--accent-soft);color:var(--accent);padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px">
-      限时优惠已生效：<b>${adj>0?'+':''}${adj} 元/kg</b>
+      限时调价已生效：<b>${adj>0?'+':''}${adj} 元/kg</b>
     </div>`;
   }
   if (diffSummary) {
@@ -5871,7 +5890,7 @@ $('btnCloudSync').addEventListener('click', async () => {
     syncToCloud('/api/rates', mRates),
     syncToCloud('/api/adjustments', mAdjs)
   ]);
-  const label = ['报价记录', '表价', '优惠'];
+  const label = ['报价记录', '表价', '调价'];
   const pullFail = [inq, rates, adjs].map((x, i) => x.ok ? null : label[i]).filter(Boolean);
   const pushFail = label.filter((n, i) => !push[i]);
   if (pullFail.length || pushFail.length) {
