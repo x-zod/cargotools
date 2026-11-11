@@ -987,17 +987,44 @@ async function syncFromCloud(path) {
 }
 
 // ---------- 存储层 ----------
-let _allCache = null, _allDirty = true;
+// 每条记录带 updatedAt（毫秒）参与 LWW 云同步；删除不物理删，打 deleted:true 墓碑
+let _allCache = null, _allRawCache = null, _allDirty = true;
+function _backfillUpdatedAt(list) {
+  (list || []).forEach(x => {
+    if (x && !x.updatedAt) {
+      const t = x.created_at ? Number(new Date(x.created_at)) : 0;
+      x.updatedAt = (t && isFinite(t)) ? t : 1;
+    }
+  });
+  return list;
+}
 function loadAll() {
   try {
-    if (_allCache === null || _allDirty) { _allCache = JSON.parse(localStorage.getItem(STORE_KEY)) || []; _allDirty = false; }
+    if (_allCache === null || _allDirty) {
+      const raw = _backfillUpdatedAt(JSON.parse(localStorage.getItem(STORE_KEY)) || []);
+      _allRawCache = raw;
+      _allCache = raw.filter(x => !x.deleted);
+      _allDirty = false;
+    }
     return _allCache;
   } catch(e) { return []; }
 }
+function loadAllRaw() { loadAll(); return _allRawCache || []; }
 function saveAll(list) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(list));
-  _allCache = list; _allDirty = false;
-  syncToCloud('/api/inquiries', list);
+  // list 是 active 全量；保留旧墓碑（deleted 且 list 中已没有该 id），同步时推到云端
+  const tombs = (loadAllRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const merged = list.concat(tombs);
+  localStorage.setItem(STORE_KEY, JSON.stringify(merged));
+  _allCache = list; _allRawCache = merged; _allDirty = false;
+  syncToCloud('/api/inquiries', merged);
+}
+function tombstoneInq(id) {
+  const all = (loadAllRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  localStorage.setItem(STORE_KEY, JSON.stringify(all));
+  _allRawCache = all;
+  _allCache = all.filter(x => !x.deleted);
+  _allDirty = false;
+  syncToCloud('/api/inquiries', all);
 }
 function uid() {
   return 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1447,6 +1474,7 @@ $('btnParse').addEventListener('click', () => {
       rows.forEach((tr, i) => {
         const rec = {
           id: uid(),
+          updatedAt: Date.now(),
           date: todayStr(),
           dest: '', pieces:0, weight:0, volume:0, dims:'',
           customer:'', remark:'', raw_text:''
@@ -2484,15 +2512,25 @@ $('btnToCost').addEventListener('click', () => {
   $('view-cost').classList.add('active');
 });
 
-$('btnSave').addEventListener('click', () => { flushRateMatch();  const dest = $('fDest').value.trim().toUpperCase();
+$('btnSave').addEventListener('click', () => {
+  if ($('btnSave').dataset.busy) return;
+  flushRateMatch();  const dest = $('fDest').value.trim().toUpperCase();
   if (!dest) { toast('请填目的港'); return; }
+  const date = $('fDate').value || todayStr();
+  const weight = parseFloat($('fWeight').value) || 0;
+  const volume = parseFloat($('fVolume').value) || 0;
+  // 当天同参数查重：同一天 + 同目的港 + 同毛重/体积，防止重复入库
+  const dup = loadAll().find(r => r.date === date && r.dest === dest &&
+    Math.abs((r.weight||0) - weight) < 0.01 && Math.abs((r.volume||0) - volume) < 0.01);
+  if (dup && !confirm(`今日已有相同询价：${dest} ${weight}kg/${volume}CBM${dup.customer?'（'+dup.customer+'）':''}，是否继续保存？`)) return;
   const rec = {
     id: uid(),
-    date: $('fDate').value || todayStr(),
+    updatedAt: Date.now(),
+    date,
     dest,
     pieces: parseFloat($('fPieces').value) || 0,
-    weight: parseFloat($('fWeight').value) || 0,
-    volume: parseFloat($('fVolume').value) || 0,
+    weight,
+    volume,
     dims: $('fDims').value.trim(),
     customer: $('fCustomer').value.trim(),
     remark: $('fRemark').value.trim(),
@@ -2506,6 +2544,8 @@ $('btnSave').addEventListener('click', () => { flushRateMatch();  const dest = $
     outerSupplier: (window.__pendingOuter && window.__pendingOuter.supplier) || ''
   };
   window.__pendingOuter = null; // 用掉即清空
+  $('btnSave').dataset.busy = '1';
+  setTimeout(() => { delete $('btnSave').dataset.busy; }, 1000);
   const all = loadAll();
   all.unshift(rec);
   saveAll(all);
@@ -2687,6 +2727,7 @@ function openDetail(id) {
     r.rateTransit = m.transit || null;
     r.rateDensity = m.density || null;
     r.rateDate = m.sheetDate || null;
+    r.updatedAt = Date.now();
     saveAll(loadAll().map(x => x.id === r.id ? r : x));
     toast('已用 ' + m.airline + (m.transit?'·'+m.transit:'') + ' ' + r.dest + ' 表价更新（¥' + fmtNum(m.final,2) + '）');
     renderList();
@@ -2698,6 +2739,7 @@ function openDetail(id) {
     const v = parseFloat($('fOuterPrice').value);
     r.outerPrice = isNaN(v) ? null : v;
     r.outerSupplier = $('fOuterSupplier').value.trim();
+    r.updatedAt = Date.now();
     saveAll(all);
     toast('外配价已保存');
     renderList();
@@ -2709,6 +2751,7 @@ function openDetail(id) {
     const v = parseFloat($('fCustomerPrice').value);
     r.customerPrice = isNaN(v) ? null : v;
     r.customer = $('fCustomerName').value.trim();
+    r.updatedAt = Date.now();
     saveAll(all);
     toast('客户报价已保存');
     renderList();
@@ -2729,9 +2772,7 @@ function openDetail(id) {
 
   $('btnDelInq').addEventListener('click', () => {
     if (!confirm('确定删除这条询价？')) return;
-    const idx = all.findIndex(x => x.id === id);
-    all.splice(idx, 1);
-    saveAll(all);
+    tombstoneInq(id);
     closeModal();
     renderList();
     toast('已删除');
@@ -2979,17 +3020,33 @@ function findJLYvrSheet(sheets, isExpFn) {
 
 // ---------- 航司表价：存储 ----------
 const RATE_KEY = 'af_rate_sheets_v1';
-let _rateCache = null, _rateDirty = true;
+let _rateCache = null, _rateRawCache = null, _rateDirty = true;
 function loadRates() {
   try {
-    if (_rateCache === null || _rateDirty) { _rateCache = JSON.parse(localStorage.getItem(RATE_KEY)) || []; _rateDirty = false; }
+    if (_rateCache === null || _rateDirty) {
+      const raw = _backfillUpdatedAt(JSON.parse(localStorage.getItem(RATE_KEY)) || []);
+      _rateRawCache = raw;
+      _rateCache = raw.filter(x => !x.deleted);
+      _rateDirty = false;
+    }
     return _rateCache;
   } catch(e) { return []; }
 }
+function loadRatesRaw() { loadRates(); return _rateRawCache || []; }
 function saveRates(list) {
-  localStorage.setItem(RATE_KEY, JSON.stringify(list));
-  _rateCache = list; _rateDirty = false;
-  syncToCloud('/api/rates', list);
+  const tombs = (loadRatesRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const merged = list.concat(tombs);
+  localStorage.setItem(RATE_KEY, JSON.stringify(merged));
+  _rateCache = list; _rateRawCache = merged; _rateDirty = false;
+  syncToCloud('/api/rates', merged);
+}
+function tombstoneRate(id) {
+  const all = (loadRatesRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  localStorage.setItem(RATE_KEY, JSON.stringify(all));
+  _rateRawCache = all;
+  _rateCache = all.filter(x => !x.deleted);
+  _rateDirty = false;
+  syncToCloud('/api/rates', all);
 }
 
 // 判断 ExcelJS 字体颜色是否"有效"（黑字或红字）
@@ -4440,7 +4497,8 @@ $('btnSaveRate').addEventListener('click', () => {
       }),
       image: '', // 预留截图
       remark: (parsedRows._sheetRemarks && parsedRows._sheetRemarks[t]) || '',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      updatedAt: Date.now()
     };
     // 表级比重减价规则解析（上海AA经HND：≥300kg 重货 1:500−1 / 1:1000−2）
     const dRule = parseDensityRule(sheet.remark);
@@ -4528,7 +4586,7 @@ function renderRateList() {
       }
       if (act === 'del') {
         if (!confirm('删除这张牌价表？')) return;
-        saveRates(loadRates().filter(x => x.id !== id)); renderRateList(); return;
+        tombstoneRate(id); renderRateList(); return;
       }
       if (act === 'expire') {
         const s = loadRates().find(x => x.id === id); if (!s) return;
@@ -4560,17 +4618,33 @@ document.querySelectorAll('.rate-cat-tab').forEach(btn => {
 
 // ---------- 临时调价：存储与逻辑 ----------
 const ADJ_KEY = 'af_adjustments_v1';
-let _adjCache = null, _adjDirty = true;
+let _adjCache = null, _adjRawCache = null, _adjDirty = true;
 function loadAdjs() {
   try {
-    if (_adjCache === null || _adjDirty) { _adjCache = JSON.parse(localStorage.getItem(ADJ_KEY)) || []; _adjDirty = false; }
+    if (_adjCache === null || _adjDirty) {
+      const raw = _backfillUpdatedAt(JSON.parse(localStorage.getItem(ADJ_KEY)) || []);
+      _adjRawCache = raw;
+      _adjCache = raw.filter(x => !x.deleted);
+      _adjDirty = false;
+    }
     return _adjCache;
   } catch(e) { return []; }
 }
+function loadAdjsRaw() { loadAdjs(); return _adjRawCache || []; }
 function saveAdjs(list) {
-  localStorage.setItem(ADJ_KEY, JSON.stringify(list));
-  _adjCache = list; _adjDirty = false;
-  syncToCloud('/api/adjustments', list);
+  const tombs = (loadAdjsRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const merged = list.concat(tombs);
+  localStorage.setItem(ADJ_KEY, JSON.stringify(merged));
+  _adjCache = list; _adjRawCache = merged; _adjDirty = false;
+  syncToCloud('/api/adjustments', merged);
+}
+function tombstoneAdj(id) {
+  const all = (loadAdjsRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  localStorage.setItem(ADJ_KEY, JSON.stringify(all));
+  _adjRawCache = all;
+  _adjCache = all.filter(x => !x.deleted);
+  _adjDirty = false;
+  syncToCloud('/api/adjustments', all);
 }
 
 // 查某航司+中转点当前生效的调价（可叠加多个）
@@ -4716,7 +4790,8 @@ $('btnAddAdj').addEventListener('click', () => {
     delta: delta,
     date: todayStr(),
     expiry: $('adjExpiry').value || '',
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    updatedAt: Date.now()
   };
   const all = loadAdjs();
   all.unshift(adj);
@@ -4750,7 +4825,7 @@ function renderAdjList() {
   `).join('');
   box.querySelectorAll('button[data-id]').forEach(b => b.addEventListener('click', () => {
     if (!confirm('删除这条限时调价？')) return;
-    saveAdjs(loadAdjs().filter(x => x.id !== b.dataset.id));
+    tombstoneAdj(b.dataset.id);
     renderAdjList();
     renderRateList();
     updateAdjBanner();
@@ -5842,27 +5917,22 @@ $('btnSaveSync').addEventListener('click', () => {
   toast('登录成功，数据开始同步');
 });
 
-// 双向合并：按 id 合并本地与云端（本地优先保留现场，云端独有补入；含时间戳的取较新）
-function mergeById(localArr, cloudArr, timeKey) {
+// 双向合并：按 id 合并本地与云端（按 updatedAt 毫秒 LWW；deleted 墓碑参与合并以传播删除）
+function mergeById(localArr, cloudArr) {
   const map = new Map();
   (cloudArr || []).forEach(x => { if (x && x.id) map.set(x.id, x); });
-  // CF中最新时间戳，用于判断本地独有的记录是"新增"还是"已删除"
   let cloudMaxTime = 0;
-  if (timeKey) {
-    (cloudArr || []).forEach(x => { if (x && x[timeKey]) { const t = new Date(x[timeKey]).getTime(); if (t > cloudMaxTime) cloudMaxTime = t; } });
-  }
+  (cloudArr || []).forEach(x => { if (x && typeof x.updatedAt === 'number' && x.updatedAt > cloudMaxTime) cloudMaxTime = x.updatedAt; });
   (localArr || []).forEach(x => {
     if (!x || !x.id) return;
+    if (typeof x.updatedAt !== 'number') x.updatedAt = 1;
     const exist = map.get(x.id);
     if (exist) {
-      // 两边都有，取较新的
-      if (timeKey && exist[timeKey] && x[timeKey] && x[timeKey] > exist[timeKey]) map.set(x.id, x);
-    } else if (timeKey) {
-      // CF里没有、本地有：时间比CF最新的还新→新增保留；否则→已删除不保留
-      if (x[timeKey] && new Date(x[timeKey]).getTime() > cloudMaxTime) map.set(x.id, x);
+      if (typeof exist.updatedAt !== 'number') exist.updatedAt = 1;
+      if (x.updatedAt > exist.updatedAt) map.set(x.id, x);
     } else {
-      // 无时间戳（报价记录）：本地优先保留
-      map.set(x.id, x);
+      // CF 没有、本地有：比 CF 最新时间还新→本地新增/新删，保留墓碑；否则视为已被远端清掉，不保留
+      if (x.updatedAt > cloudMaxTime) map.set(x.id, x);
     }
   });
   return Array.from(map.values());
@@ -5875,16 +5945,19 @@ $('btnCloudSync').addEventListener('click', async () => {
     syncFromCloud('/api/rates'),
     syncFromCloud('/api/adjustments')
   ]);
-  // 合并：报价记录无时间戳→本地优先保留现场；表价/调价有时间戳→取较新
-  const mInq = mergeById(loadAll(), inq.data);
-  const mRates = mergeById(loadRates(), rates.data, 'created_at');
-  const mAdjs = mergeById(loadAdjs(), adjs.data, 'created_at');
-  // 同步后自动过期：同一航司+中转点只保留最新生效日的表价
-  const syncExpiredCount = autoExpireRates(mRates);
-  saveAll(mInq); renderList();
-  saveRates(mRates); renderRateList();
-  saveAdjs(mAdjs); renderAdjList();
-  // 回写云端，保证两端一致完整
+  // 用 Raw（含 deleted 墓碑）做 LWW 合并；save* 会自动过滤 active 并保留墓碑
+  const mInq = mergeById(loadAllRaw(), inq.data);
+  const mRates = mergeById(loadRatesRaw(), rates.data);
+  const mAdjs = mergeById(loadAdjsRaw(), adjs.data);
+  // 同步后自动过期：同一航司+中转点只保留最新生效日的表价（只对 active 生效）
+  const mRatesActive = mRates.filter(x => !x.deleted);
+  const syncExpiredCount = autoExpireRates(mRatesActive);
+  // autoExpireRates 可能改了 mRatesActive（标 expired），同步回 mRates 对应项
+  mRatesActive.forEach(a => { const i = mRates.findIndex(x => x.id === a.id); if (i >= 0) mRates[i] = a; });
+  saveAll(mInq.filter(x => !x.deleted)); renderList();
+  saveRates(mRates.filter(x => !x.deleted)); renderRateList();
+  saveAdjs(mAdjs.filter(x => !x.deleted)); renderAdjList();
+  // 回写云端（含墓碑，让其他设备也知道删除）
   const push = await Promise.all([
     syncToCloud('/api/inquiries', mInq),
     syncToCloud('/api/rates', mRates),
