@@ -1618,59 +1618,281 @@ function pickWeightPrice(row, dUsed, wKey) {
 const WEIGHT_ORDER = ['w45', 'w100', 'w300', 'w500', 'w1000'];
 
 // 纯函数：查某票（目的港+毛重+体积）在未过期表价里的最低价（含 LH 联程转运），供单票/多票共用
-function lookupRateFor(dest, weight, volume) {
-  const sheets = loadRates();
-  const isExp = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
+// ===== 统一匹配引擎：collectMatches =====
+// 从表价库收集所有匹配项（含直航、LH联程、AA128/JL卡转/GRU转运联动），去重后按价格升序返回。
+// lookupRateFor 取 matches[0]（最低价）用于报价记录算毛利；updateRateMatch 用整个数组渲染。
+function collectMatches(dest, weight, volume) {
+  const qd = normalizeDest(dest);
   const c = calc(weight, volume);
   const wk = matchWeightKey(c.chargeW);
-  const ratio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
-  const dk = matchDensityKey(ratio);
-  const qdn = normalizeDest(dest);
-  let best = null;
-  const tr = getLHTransferFee(qdn);   // 转运费只查一次（与表数量无关）
+  const densityRatio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
+  const dk = matchDensityKey(densityRatio);
+
+  const sheets = loadRates();
+  const isExp = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
+  const hasUCUpdated = sheets.some(s => s.ucUpdated && !isExp(s));
+  const matches = [];
+  const missing = [];
+  const mutedHits = [];
+
   sheets.forEach(s => {
     if (!s.rows || isExp(s)) return;
+    if (s.ucBase && hasUCUpdated) return;
     const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
-    // UC表价规则：毛重<300kg不享受比重价，只用w100
     const isUCSheet = s.rows && s.rows.some(r => r.ucMeta);
-    const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length) ? (matchDensityDef(s.densityDef, ratio) || dk) : dk);
-    let directHit = false; // 该表内此目的港是否命中直航价（有直航则不再走 LH 联程转运）
-    const ruleAdj = applyDensityRule(s.densityRule, c.weight, ratio);
+    const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length)
+      ? (matchDensityDef(s.densityDef, densityRatio) || dk)
+      : dk);
+    let directHit = false;
     s.rows.forEach(r => {
       const rd = normalizeDest(r.dest);
-      const hit = destMatches(rd, qdn);
+      const hit = destMatches(rd, qd);
       if (!hit) return;
-      const p = priceFromRow(r, wk, effDk);
-      if (p.base !== undefined) {
+      if (r.muted) {
+        const until = r.muted.until || '';
+        if (!until || todayStr() <= until) {
+          const dupKey = s.airline + '|' + (r.dest || '').trim();
+          if (!mutedHits.some(x => x.dupKey === dupKey)) {
+            mutedHits.push({ dupKey, airline: s.airline, transit: s.transit || '', dest: (r.dest || '').trim(), note: r.muted.note || '市价忽略', until, from: r.muted.from || '' });
+          }
+          return;
+        }
+      }
+      if (r.ucMeta && /^(BRU|AMS|FRA|MUC|VIE|CDG|LHR|MAD|BCN|PAR|LON|ROM|MIL|STO|OSL|CPH|ZRH|VCE)$/i.test(r.transit || '')) return;
+
+      let effDkForRow = effDk;
+      if (r.gwRule && effDkForRow && effDkForRow !== 'flat') {
+        const minNum = +(String(effDkForRow).match(/[：:](\d+)/) || [0, 0])[1];
+        const need = minNum >= 500 ? r.gwRule.tAll : r.gwRule.t300;
+        if (c.weight < need) effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
+      }
+      if (r.bulkMinGw && effDkForRow && effDkForRow.startsWith('<1:') && c.weight < r.bulkMinGw) {
+        effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
+      }
+      const _p = priceFromRow(r, wk, effDkForRow);
+      let base = _p.base;
+      const densityUsed = _p.density;
+      const effectiveWk = _p.weightKey;
+      const srcLabel = _p.srcLabel;
+
+      if (base !== undefined) {
         directHit = true;
-        // 45KG 档：仅当查询档为 w45 时，同目的港真实 45 档价优先于"回退到 100 档"的价
-        const pReal45 = wk === 'w45' && p.weightKey === 'w45';
-        const bReal45 = wk === 'w45' && best ? best.weightKey === 'w45' : false;
-        const candFinal = p.base + adj + ruleAdj + applySmallRule(r.smallRule, weight, volume);
-        if (!best || (pReal45 && !bReal45) || (pReal45 === bReal45 && candFinal < best.final)) {
-          best = { airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: p.weightKey, base: p.base, final: candFinal, density: p.density, pp: !!r.pp, bare: !!r.bare };
+        const ruleAdj = applyDensityRule(s.densityRule, c.weight, densityRatio);
+        const smallAdj = applySmallRule(r.smallRule, c.weight, c.volume);
+        let final = base + adj + ruleAdj + smallAdj;
+        let tierCut = 0;
+        {
+          const rmkAll = [r.remark, ...(r.remarks || []), s.remark].join('；');
+          if (/重货/.test(rmkAll) && densityUsed && densityUsed !== 'flat' && !/^</.test(String(densityUsed)) && r.densityPrices) {
+            const flatDp = r.densityPrices['flat'];
+            const flatP = flatDp ? (flatDp[effectiveWk] !== undefined ? flatDp[effectiveWk] : flatDp[wk]) : undefined;
+            if (flatP !== undefined && base < flatP) tierCut = +(flatP - base).toFixed(2);
+          }
+        }
+        const ruleNote = densityRuleNote(s.densityRule);
+        let vRefs = null;
+        let entryService = r.service || null;
+        if (r.variants) {
+          vRefs = {};
+          Object.keys(r.variants).forEach(lb => {
+            const v = r.variants[lb];
+            let vp;
+            if (v.densityPrices) {
+              if (v.densityPrices[effDk]) vp = v.densityPrices[effDk][effectiveWk];
+              else if (v.densityPrices['flat']) vp = v.densityPrices['flat'][effectiveWk];
+            } else if (v.prices) vp = v.prices[effectiveWk];
+            if (vp !== undefined) vRefs[lb] = vp + adj;
+          });
+        }
+        if (srcLabel && r.densityPrices) {
+          entryService = srcLabel;
+          let mainVp = (r.densityPrices[effDk] && r.densityPrices[effDk][effectiveWk] !== undefined) ? r.densityPrices[effDk][effectiveWk]
+            : (r.densityPrices['flat'] && r.densityPrices['flat'][effectiveWk] !== undefined ? r.densityPrices['flat'][effectiveWk] : undefined);
+          if (mainVp !== undefined) { vRefs = vRefs || {}; vRefs[r.service] = mainVp + adj; }
+        }
+        const tierNote = (r.densityPrices && densityUsed && r.densityPrices[densityUsed] && r.densityPrices[densityUsed].note) || '';
+        {
+          const aaPlain = /^AA/i.test(s.airline || '') && !r.variants;
+          const sRmk = s.remark || '';
+          const remarkText = [r.remark, ...(r.remarks || []), tierNote, (aaPlain || /标托/.test(sRmk)) ? sRmk : ''].join('；');
+          const pdM = remarkText.match(/(?:标托|标准?托盘)\s*\+\s*(\d+(?:\.\d+)?)/) || remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+          const hasPal = vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k));
+          if (pdM && !hasPal) {
+            vRefs = vRefs || {};
+            if (!entryService) entryService = '散货';
+            const palLabel = entryService.replace(/散货$/, '托盘');
+            if (aaPlain) {
+              vRefs[entryService] = final;
+              vRefs[palLabel] = final + (+pdM[1]);
+            } else {
+              vRefs[palLabel] = base + (+pdM[1]) + adj;
+            }
+          }
+          if (pdM && hasPal) {
+            const palKeys = Object.keys(vRefs).filter(k => /托盘$/.test(k));
+            const hasPalCut = /托\s*[-−]\s*\d/.test(remarkText);
+            if (palKeys.length && !hasPalCut) {
+              palKeys.forEach(pk => { vRefs[pk] = final + (+pdM[1]); });
+            }
+          }
+        }
+        if (r.service && r.variants && Object.keys(r.variants).length) {
+          const candDk = densityUsed || effDk || 'flat';
+          const segBulkPrice = (dp) => {
+            if (!dp) return undefined;
+            if (dp[candDk] && dp[candDk][effectiveWk] !== undefined) return dp[candDk][effectiveWk];
+            if (dp.flat && dp.flat[effectiveWk] !== undefined) return dp.flat[effectiveWk];
+            return undefined;
+          };
+          const cand = [];
+          const mainP = segBulkPrice(r.densityPrices);
+          if (mainP !== undefined) cand.push({ label: r.service, price: mainP });
+          Object.keys(r.variants).forEach(lb => {
+            if (!/散货$/.test(lb)) return;
+            const vp = segBulkPrice(r.variants[lb].densityPrices);
+            if (vp !== undefined) cand.push({ label: lb, price: vp });
+          });
+          if (cand.length > 1) {
+            const isSH = lb => /上海/.test(lb) && !/(厦门|鄂州|O3|K4)/i.test(lb);
+            cand.sort((a, b) => (a.price - b.price) || (isSH(b.label) - isSH(a.label)));
+            const win = cand[0];
+            entryService = win.label;
+            base = win.price;
+            final = win.price + adj + ruleAdj + smallAdj;
+            const newRefs = {};
+            cand.forEach(cc => { if (cc.label !== win.label) newRefs[cc.label] = cc.price + adj; });
+            Object.keys(r.variants).forEach(lb => {
+              if (/托盘$/.test(lb)) {
+                const vp = segBulkPrice(r.variants[lb].densityPrices);
+                if (vp !== undefined) newRefs[lb] = vp + adj;
+              }
+            });
+            vRefs = Object.keys(newRefs).length ? newRefs : null;
+          }
+        }
+        let neighborNote = '';
+        const densityDefUsed = r._densityDef || s.densityDef;
+        if (densityDefUsed && densityDefUsed.length > 1 && densityUsed && r.densityPrices && r.densityPrices[densityUsed]) {
+          const di = densityDefUsed.findIndex(d => d.key === densityUsed);
+          if (di >= 0) {
+            const nbrParts = [];
+            [di - 1, di + 1].forEach(ni => {
+              if (ni < 0 || ni >= densityDefUsed.length) return;
+              const nk = densityDefUsed[ni].key;
+              if (r.gwRule && nk !== 'flat') {
+                const nMin = +(String(nk).match(/[：:](\d+)/) || [0, 0])[1];
+                const nNeed = nMin >= 500 ? r.gwRule.tAll : r.gwRule.t300;
+                if (c.weight < nNeed) return;
+              }
+              const ndp = r.densityPrices[nk];
+              if (!ndp) return;
+              const np = (ndp[effectiveWk] !== undefined ? ndp[effectiveWk] : ndp[wk]);
+              if (np === undefined) return;
+              nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + adj, r.pp, r.bare)}`);
+            });
+            if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
+          }
+        }
+        {
+          const wi = WEIGHT_ORDER.indexOf(effectiveWk);
+          if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
+            const bk = WEIGHT_ORDER[wi + 1];
+            const bp = pickWeightPrice(r, densityUsed, bk);
+            if (bp !== undefined && bp !== base) {
+              const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + adj, r.pp, r.bare)}`;
+              neighborNote = neighborNote ? `${neighborNote} / ${wNote}` : wNote;
+            }
+          }
+        }
+        const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
+        const fullRemark = [portRemark, tierNote, ruleNote].filter(Boolean).join('；');
+        let routing = '';
+        let ucNote = '';
+        const rm = fullRemark.match(/路径:([^|]+)/);
+        if (rm) routing = rm[1].trim();
+        const limitNote = fullRemark.match(/(SCL|LIM)空转单件限重80kg/);
+        if (limitNote) ucNote = limitNote[0];
+        const gwTypeMatch = fullRemark.match(/[|]\s*(空转|卡转)\s*[|]/);
+        const gwType = gwTypeMatch ? gwTypeMatch[1] : '';
+        matches.push({
+          airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: effectiveWk,
+          base, final, adj, matchedDest: (r.dest||'').trim(),
+          density: densityUsed, remark: fullRemark, neighborNote, variants: vRefs, service: entryService,
+          pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType,
+          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote, tierCut
+        });
+      } else {
+        const availW = r.prices ? Object.keys(r.prices) : [];
+        const availD = r.densityPrices ? Object.keys(r.densityPrices) : [];
+        if (availW.length || availD.length) {
+          missing.push({
+            airline: s.airline, transit: s.transit || '', matchedDest: (r.dest||'').trim(),
+            avail: `重量档:${availW.map(k=>WEIGHT_LABEL[k]).join('/')||'无'} 比重档:${availD.join('/')||'无'}`,
+            sheetDate: s.date
+          });
         }
       }
     });
-    // LH 联程转运（目的港无直达表价时经 hub；LH 表内已命中直航则不再叠加）
-    if (tr && s.airline === LH_TRANSFER_FEES.airline && !directHit) {
-      const hubRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), tr.hub));
-      hubRows.forEach(hr => {
-        const p = priceFromRow(hr, wk, effDk);
-        if (p.base !== undefined) {
-          const pReal45 = wk === 'w45' && p.weightKey === 'w45';
-          const bReal45 = wk === 'w45' && best ? best.weightKey === 'w45' : false;
-          if (!best || (pReal45 && !bReal45) || (pReal45 === bReal45 && p.base < best.base)) {
-            best = { airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: p.weightKey, base: p.base, final: p.base + tr.fee + adj + applySmallRule(hr.smallRule, weight, volume), density: p.density, pp: !!hr.pp };
+    // LH 联程转运
+    const trInfo = getLHTransferFee(qd);
+    if (trInfo && s.airline === LH_TRANSFER_FEES.airline && !directHit) {
+      const hubRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), trInfo.hub));
+      if (hubRows.length) {
+        let bestP = null, bestRow = null;
+        hubRows.forEach(hubRow => {
+          const p = priceFromRow(hubRow, wk, effDk);
+          if (p.base !== undefined && (!bestP || p.base < bestP.base)) { bestP = p; bestRow = hubRow; }
+        });
+        if (bestP) {
+          const smallAdjT = applySmallRule(bestRow.smallRule, c.weight, c.volume);
+          const tierHubRow = hubRows.find(r => r.densityPrices && bestP.density && r.densityPrices[bestP.density])
+            || hubRows.find(r => r.density === 'flat') || hubRows[0];
+          const tierNoteT = (tierHubRow.densityPrices && bestP.density && tierHubRow.densityPrices[bestP.density] && tierHubRow.densityPrices[bestP.density].note) || '';
+          let neighborNoteT = '';
+          if (s.densityDef && s.densityDef.length > 1 && bestP.density && tierHubRow.densityPrices && tierHubRow.densityPrices[bestP.density]) {
+            const di = s.densityDef.findIndex(d => d.key === bestP.density);
+            if (di >= 0) {
+              const nbrParts = [];
+              [di - 1, di + 1].forEach(ni => {
+                if (ni < 0 || ni >= s.densityDef.length) return;
+                const nk = s.densityDef[ni].key;
+                const ndp = tierHubRow.densityPrices[nk];
+                if (!ndp) return;
+                const np = ndp[bestP.weightKey] !== undefined ? ndp[bestP.weightKey] : ndp[wk];
+                if (np === undefined) return;
+                nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`);
+              });
+              if (nbrParts.length) neighborNoteT = '相邻档：' + nbrParts.join(' / ');
+            }
           }
+          {
+            const wi = WEIGHT_ORDER.indexOf(bestP.weightKey);
+            if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
+              const bk = WEIGHT_ORDER[wi + 1];
+              const bp = pickWeightPrice(tierHubRow, bestP.density, bk);
+              if (bp !== undefined && bp !== bestP.base) {
+                const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`;
+                neighborNoteT = neighborNoteT ? `${neighborNoteT} / ${wNote}` : wNote;
+              }
+            }
+          }
+          const baseRemark = hubRows.find(r => (r.remark || '').includes('有效期'))?.remark || (hubRows.find(r => r.density === 'flat') || hubRows[0]).remark || '';
+          const fullRemarkT = [baseRemark, tierNoteT].filter(Boolean).join('；');
+          matches.push({
+            airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: bestP.weightKey,
+            base: bestP.base, final: bestP.base + trInfo.fee + adj + smallAdjT, adj,
+            matchedDest: qd, density: bestP.density,
+            remark: `经${trInfo.hub}转运 +${trInfo.fee}/kg${fullRemarkT ? '；' + fullRemarkT : ''}`,
+            neighborNote: neighborNoteT,
+            smallAdj: smallAdjT, smallRule: bestRow.smallRule
+          });
         }
-      });
+      }
     }
   });
-  // AA128 联动：目的港在 AA128_ZONE 且无直飞价时，用 AA128 表（直飞DFW）DFW 基准散价 + 区域加价
-  // 美国全境+2 / 墨西哥·加拿大+7（MEX GDL MTY CUN；CUN仅散货）；DFW 本身不加
-  if (!best && qdn !== 'DFW' && AA128_ZONE[qdn]) {
-    // 兼容两种存储格式：家版 airline='AA'+transit='直飞DFW'；公司版 airline 含'AA128'
+
+  // AA128 联动
+  if (AA128_ZONE[qd] && qd !== 'DFW') {
     const aa128 = sheets.find(s => {
       const al = (s.airline||'').toUpperCase();
       return !isExp(s) && ((al==='AA' && (s.transit||'')==='直飞DFW') || /AA128/.test(al));
@@ -1678,56 +1900,74 @@ function lookupRateFor(dest, weight, volume) {
     if (aa128) {
       const dfwRow = aa128.rows.find(r => normalizeDest(r.dest)==='DFW');
       if (dfwRow) {
-        const aDk = (aa128.densityDef && aa128.densityDef.length) ? (matchDensityDef(aa128.densityDef, ratio) || dk) : dk;
+        const aDk = (aa128.densityDef && aa128.densityDef.length) ? (matchDensityDef(aa128.densityDef, densityRatio) || dk) : dk;
         const p = priceFromRow(dfwRow, wk, aDk);
         if (p.base !== undefined) {
-          const fee = AA128_ZONE[qdn]==='US' ? 2 : 7;
+          const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
           const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
-          best = { airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:p.base+fee+adj, density:p.density, aa128:true };
+          const bulkFinal = p.base + fee + adj;
+          const palM = (aa128.remark || '').match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
+          const palDiff = palM ? +palM[1] : 0;
+          matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:'散货',
+            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': bulkFinal + palDiff } : null });
         }
       }
     }
   }
-  // JL 卡车二程联动：目的港在 JL_CANADA_POOL 且非YVR时，用 JL-YVR 基准价 + 卡车加价
-  if (!best && qdn !== 'YVR' && JL_CANADA_POOL[qdn] !== undefined) {
+  // JL 卡车二程联动
+  if (JL_CANADA_POOL[qd] !== undefined && qd !== 'YVR') {
     const jl = findJLYvrSheet(sheets, isExp);
     if (jl) {
       const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
       if (yvrRow) {
-        // JL-YVR 不分泡，二程只走平货价，不套基准比重档
         const p = priceFromRow(yvrRow, wk, 'flat');
         if (p.base !== undefined) {
           const truckFee = jlExtractTruckFee(yvrRow);
-          const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qdn];
+          const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qd];
           const palDiff = jlExtractPalDiff(yvrRow, p);
           const adj = (wk==='w45') ? 0 : currentAdjFor(jl.airline, jl.transit);
           const bulkFinal = p.base + fee + adj;
           const palFinal = palDiff > 0 ? p.base + palDiff + fee + adj : null;
-          best = { airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, density:p.density, jlCanada:true, palDiff, truckFee,
-            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null, service:'散货',
-            remark: `YVR卡转${palDiff>0?('；托盘+'+palDiff):''}` };
+          matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density,
+            matchedDest: qd, remark:`YVR卡转${palDiff>0?('；托盘+'+palDiff):''}`, jlCanada:true, service:'散货',
+            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null });
         }
       }
     }
   }
-  // AA 经GRU 巴西内陆联动：目的港在 AA_GRU_BRAZIL_POOL 时，用 AA 表 GRU 基准价 + 内陆转运附加费
-  // 附加费按计费重选档（2000+/1000+/500+/300+/100+，每票最低 MIN）；展示路径"GRU转运"
-  if (!best && AA_GRU_BRAZIL_POOL[qdn]) {
-    const ag = findAAGruRow(sheets, isExp, wk, ratio, dk);
+  // AA GRU 巴西内陆联动
+  if (AA_GRU_BRAZIL_POOL[qd]) {
+    const ag = findAAGruRow(sheets, isExp, wk, densityRatio, dk);
     if (ag && ag.p.base !== undefined) {
-      const entry = AA_GRU_BRAZIL_POOL[qdn];
+      const entry = AA_GRU_BRAZIL_POOL[qd];
       const add = gruAddOnPerKg(entry, c.chargeW);
       const adj = (wk === 'w45') ? 0 : currentAdjFor(ag.sheet.airline, ag.sheet.transit);
-      const ruleAdj = applyDensityRule(ag.sheet.densityRule, c.weight, ratio);
-      const smallAdj = applySmallRule(ag.row.smallRule, weight, volume);
+      const ruleAdj = applyDensityRule(ag.sheet.densityRule, c.weight, densityRatio);
+      const smallAdj = applySmallRule(ag.row.smallRule, c.weight, c.volume);
       const final = ag.p.base + add + adj + ruleAdj + smallAdj;
       const feeLbl = fmtPrice(add, false, false);
-      best = { airline:'AA', transit:'GRU转运', sheetDate: ag.sheet.date, weightKey: ag.p.weightKey,
-        base: ag.p.base, final, density: ag.p.density, gruBrazil: true, addOn: add,
-        remark: `GRU转运${qdn}，转运费+${feeLbl}/kg（MIN ¥${fmtNum(entry.min,0)}/票）` };
+      matches.push({ airline:'AA', transit:'GRU转运', sheetDate: ag.sheet.date, weightKey: ag.p.weightKey,
+        base: ag.p.base, final, adj, density: ag.p.density, matchedDest: qd,
+        remark: `GRU转运${qd}，转运费+${feeLbl}/kg（MIN ¥${fmtNum(entry.min,0)}/票）`, gruBrazil: true, addOn: add,
+        service:'散货', smallAdj, smallRule: ag.row.smallRule, ruleAdj, ruleNote: densityRuleNote(ag.sheet.densityRule) });
     }
   }
-  return best;
+
+  // 去重：同一航司+中转点+目的港+路径只保留最新日期
+  const seen = {};
+  matches.forEach(m => {
+    const key = m.airline + '|' + m.transit + '|' + m.matchedDest + '|' + (m.routing || '') + '|' + (m.gwType || '');
+    if (!seen[key] || (m.sheetDate || '') > (seen[key].sheetDate || '')) {
+      seen[key] = m;
+    }
+  });
+  const finalMatches = Object.values(seen).sort((a,b) => a.final - b.final);
+  return { matches: finalMatches, missing, mutedHits, calc: c, wk, sheets };
+}
+
+function lookupRateFor(dest, weight, volume) {
+  const { matches } = collectMatches(dest, weight, volume);
+  return matches[0] || null;
 }
 
 // 外配参考时效过滤：只保留 2 周以内的记录；超过 2 周但属往年同周（去年/更早同 ISO 周）的记录保留（同比有参考意义）
@@ -1777,389 +2017,14 @@ function updateRateMatch() {
   const dest = $('fDest').value.trim().toUpperCase();
   const card = $('rateMatchCard');
   if (!dest) { card.style.display = 'none'; return; }
+  const { matches, missing, mutedHits, calc: c, wk, sheets } = collectMatches(dest, $('fWeight').value, $('fVolume').value);
   const qd = normalizeDest(dest);
-  const c = calc($('fWeight').value, $('fVolume').value);
-  const wk = matchWeightKey(c.chargeW);
   const densityRatio = c.weight > 0 && c.volume > 0 ? c.weight / c.volume : 0;
   const dk = matchDensityKey(densityRatio);
 
-  const sheets = loadRates();
-  const isSheetExpired = (s) => s.expired === true || (s.expiry && s.expiry < todayStr());
-  // UC规则：存在UC手写版更新表价时，UC基准表价不参与匹配
-  const hasUCUpdated = sheets.some(s => s.ucUpdated && !isSheetExpired(s));
-  const matches = [];
-  const missing = [];
-  const mutedHits = [];   // 期间内市价忽略的目的港（EZE 跑道维修等）
-  sheets.forEach(s => {
-    if (!s.rows) return;
-    if (isSheetExpired(s)) return;   // 已过期/已到期：不参与匹配
-    // UC基准表价在有手写版更新时不参与匹配
-    if (s.ucBase && hasUCUpdated) return;
-    const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
-    // UC表价规则：毛重<300kg不享受比重价，只用w100
-    const isUCSheet = s.rows && s.rows.some(r => r.ucMeta);
-    const effDk = (isUCSheet && c.weight < 300) ? null : ((s.densityDef && s.densityDef.length)
-      ? (matchDensityDef(s.densityDef, densityRatio) || dk)
-      : dk);
-    s.rows.forEach(r => {
-      const rd = normalizeDest(r.dest);
-      const hit = destMatches(rd, qd);
-      if (!hit) return;
-      // 市价忽略（EZE 跑道维修等）：忽略期内该目的港不出价，只给提示；期满自动恢复
-      if (r.muted) {
-        const until = r.muted.until || '';
-        if (!until || todayStr() <= until) {
-          const dupKey = s.airline + '|' + (r.dest || '').trim();
-          if (!mutedHits.some(x => x.dupKey === dupKey)) {
-            mutedHits.push({ dupKey, airline: s.airline, transit: s.transit || '', dest: (r.dest || '').trim(), note: r.muted.note || '市价忽略', until, from: r.muted.from || '' });
-          }
-          return;
-        }
-      }
-      // UC欧洲中转方案暂时隐藏（BRU/AMS/FRA/MUC/VIE/CDG/LHR等）
-      if (r.ucMeta && /^(BRU|AMS|FRA|MUC|VIE|CDG|LHR|MAD|BCN|PAR|LON|ROM|MIL|STO|OSL|CPH|ZRH|VCE)$/i.test(r.transit || '')) return;
-
-      // AA/DL经HNL重货门槛：GW≥200可用1:300+档，GW≥300可用≥1:500档；不达标重档不作主价，回退flat平散
-      let effDkForRow = effDk;
-      if (r.gwRule && effDkForRow && effDkForRow !== 'flat') {
-        const minNum = +(String(effDkForRow).match(/[：:](\d+)/) || [0, 0])[1];
-        const need = minNum >= 500 ? r.gwRule.tAll : r.gwRule.t300;
-        if (c.weight < need) effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
-      }
-      // 南美泡货门槛：泡档(<1:N)需毛重≥bulkMinGw(100kg)才生效，不足回退flat平货价
-      if (r.bulkMinGw && effDkForRow && effDkForRow.startsWith('<1:') && c.weight < r.bulkMinGw) {
-        effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
-      }
-      // 取价：比重档当前档 → 低重量档 → 标准重量档 → variants 散货补位（统一走 priceFromRow）
-      const _p = priceFromRow(r, wk, effDkForRow);
-      let base = _p.base;
-      const densityUsed = _p.density;
-      const effectiveWk = _p.weightKey;
-      const srcLabel = _p.srcLabel;
-
-      if (base !== undefined) {
-        // 表级比重减价规则（上海AA经HND：GW≥300 重货按 1:500−1 / 1:1000−2 减）
-        const ruleAdj = applyDensityRule(s.densityRule, c.weight, densityRatio);
-        const smallAdj = applySmallRule(r.smallRule, c.weight, c.volume);
-        let final = base + adj + ruleAdj + smallAdj;
-        // 命中比重档相对平货价的减价（表内档位价已含重货减价时，如 1:300 散¥45 / 平散¥49 → 差 4）
-        // 仅用于展示标注与高亮（"重货-4"），不再重复扣减；要求表备注明写"重货"且非泡档，避免误标
-        let tierCut = 0;
-        {
-          const rmkAll = [r.remark, ...(r.remarks || []), s.remark].join('；');
-          if (/重货/.test(rmkAll) && densityUsed && densityUsed !== 'flat' && !/^</.test(String(densityUsed)) && r.densityPrices) {
-            const flatDp = r.densityPrices['flat'];
-            const flatP = flatDp ? (flatDp[effectiveWk] !== undefined ? flatDp[effectiveWk] : flatDp[wk]) : undefined;
-            if (flatP !== undefined && base < flatP) tierCut = +(flatP - base).toFixed(2);
-          }
-        }
-        const ruleNote = densityRuleNote(s.densityRule);
-        // 统配参考价：主价=主段散货；variants 取各参考档同档价（缺当前比重档时回退该段 flat 平货价）
-        let vRefs = null;
-        let entryService = r.service || null;
-        if (r.variants) {
-          vRefs = {};
-          Object.keys(r.variants).forEach(lb => {
-            const v = r.variants[lb];
-            let vp;
-            if (v.densityPrices) {
-              if (v.densityPrices[effDk]) vp = v.densityPrices[effDk][effectiveWk];
-              else if (v.densityPrices['flat']) vp = v.densityPrices['flat'][effectiveWk];
-            } else if (v.prices) vp = v.prices[effectiveWk];
-            if (vp !== undefined) vRefs[lb] = vp + adj;
-          });
-        }
-        // 主价来自 variants 补位（srcLabel 非空，如主段慢服务无重/泡档、快服务段有）：主价归属到来源段；主段本身按当前档→flat 真实价入参考
-        if (srcLabel && r.densityPrices) {
-          entryService = srcLabel;
-          let mainVp = (r.densityPrices[effDk] && r.densityPrices[effDk][effectiveWk] !== undefined) ? r.densityPrices[effDk][effectiveWk]
-            : (r.densityPrices['flat'] && r.densityPrices['flat'][effectiveWk] !== undefined ? r.densityPrices['flat'][effectiveWk] : undefined);
-          if (mainVp !== undefined) { vRefs = vRefs || {}; vRefs[r.service] = mainVp + adj; }
-        }
-        // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价，绑定在命中比重档上）
-        const tierNote = (r.densityPrices && densityUsed && r.densityPrices[densityUsed] && r.densityPrices[densityUsed].note) || '';
-        // 备注兜底：备注标注"托盘+N"且 variants 未提供托盘价时补托盘变体
-        // AA 普通表（HND/128直航，无自带 variants）：表级备注"托盘+2/KGS"固定加价，散货=主价、托盘=主价+加价，成对显示
-        {
-          const aaPlain = /^AA/i.test(s.airline || '') && !r.variants;
-          const sRmk = s.remark || '';
-          // 表级备注纳入：AA 普通表，或表级备注为"标托+N"写法（DL 经HNL 等）
-          const remarkText = [r.remark, ...(r.remarks || []), tierNote, (aaPlain || /标托/.test(sRmk)) ? sRmk : ''].join('；');
-          // 托盘加价：优先"标托+N"（标准托盘写法，如"标托+4"），其次"托盘+N"；避免被表级旧备注的"托盘+2"抢先
-          const pdM = remarkText.match(/(?:标托|标准?托盘)\s*\+\s*(\d+(?:\.\d+)?)/) || remarkText.match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
-          const hasPal = vRefs && Object.keys(vRefs).some(k => /托盘$/.test(k));
-          if (pdM && !hasPal) {
-            vRefs = vRefs || {};
-            if (!entryService) entryService = '散货';
-            const palLabel = entryService.replace(/散货$/, '托盘');
-            if (aaPlain) {
-              vRefs[entryService] = final;
-              vRefs[palLabel] = final + (+pdM[1]);
-            } else {
-              vRefs[palLabel] = base + (+pdM[1]) + adj;
-            }
-          }
-          // 已有托盘 variants（AA/DL 经HNL 等）时按"散货最终价 + 标托加价"校正：
-          // 旧解析器对托盘重货档多减 2（base+4-(scut+2)），已存入 localStorage 的旧表不会自动重算，展示层直接拉平
-          if (pdM && hasPal) {
-            const palKeys = Object.keys(vRefs).filter(k => /托盘$/.test(k));
-            const hasPalCut = /托\s*[-−]\s*\d/.test(remarkText);   // 表内另给"托-8"这类托盘专属减价时不覆盖
-            if (palKeys.length && !hasPalCut) {
-              palKeys.forEach(pk => { vRefs[pk] = final + (+pdM[1]); });
-            }
-          }
-        }
-        // 统配多服务段比价：散货各段在当前命中档取价，取最低为主价；同价优先上海段（非厦门/鄂州/O3/K4）
-        if (r.service && r.variants && Object.keys(r.variants).length) {
-          const candDk = densityUsed || effDk || 'flat';
-          const segBulkPrice = (dp) => {
-            if (!dp) return undefined;
-            if (dp[candDk] && dp[candDk][effectiveWk] !== undefined) return dp[candDk][effectiveWk];
-            if (dp.flat && dp.flat[effectiveWk] !== undefined) return dp.flat[effectiveWk];
-            return undefined;
-          };
-          const cand = [];
-          const mainP = segBulkPrice(r.densityPrices);
-          if (mainP !== undefined) cand.push({ label: r.service, price: mainP });
-          Object.keys(r.variants).forEach(lb => {
-            if (!/散货$/.test(lb)) return;
-            const vp = segBulkPrice(r.variants[lb].densityPrices);
-            if (vp !== undefined) cand.push({ label: lb, price: vp });
-          });
-          if (cand.length > 1) {
-            const isSH = lb => /上海/.test(lb) && !/(厦门|鄂州|O3|K4)/i.test(lb);
-            cand.sort((a, b) => (a.price - b.price) || (isSH(b.label) - isSH(a.label)));
-            const win = cand[0];
-            entryService = win.label;
-            base = win.price;
-            final = win.price + adj + ruleAdj + smallAdj;
-            const newRefs = {};
-            cand.forEach(c => { if (c.label !== win.label) newRefs[c.label] = c.price + adj; });
-            Object.keys(r.variants).forEach(lb => {
-              if (/托盘$/.test(lb)) {
-                const vp = segBulkPrice(r.variants[lb].densityPrices);
-                if (vp !== undefined) newRefs[lb] = vp + adj;
-              }
-            });
-            vRefs = Object.keys(newRefs).length ? newRefs : null;
-          }
-        }
-        // 相邻比重档参考价：命中档前后各一档同重量档价格，供客户数据不准时参考
-        let neighborNote = '';
-        const densityDefUsed = r._densityDef || s.densityDef;
-        if (densityDefUsed && densityDefUsed.length > 1 && densityUsed && r.densityPrices && r.densityPrices[densityUsed]) {
-          const di = densityDefUsed.findIndex(d => d.key === densityUsed);
-          if (di >= 0) {
-            const nbrParts = [];
-            [di - 1, di + 1].forEach(ni => {
-              if (ni < 0 || ni >= densityDefUsed.length) return;
-              const nk = densityDefUsed[ni].key;
-              // AA/DL经HNL重货门槛：不达GW门槛的重档不作参考价显示
-              if (r.gwRule && nk !== 'flat') {
-                const nMin = +(String(nk).match(/[：:](\d+)/) || [0, 0])[1];
-                const nNeed = nMin >= 500 ? r.gwRule.tAll : r.gwRule.t300;
-                if (c.weight < nNeed) return;
-              }
-              const ndp = r.densityPrices[nk];
-              if (!ndp) return;
-              const np = (ndp[effectiveWk] !== undefined ? ndp[effectiveWk] : ndp[wk]);
-              if (np === undefined) return;
-              nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + adj, r.pp, r.bare)}`);
-            });
-            if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
-          }
-        }
-        // 相邻重量档参考价：当前档向上一更大重量档（如45KG→100KG、500KG→1000KG）同比重档价，供凑量参考；与主价同口径
-        {
-          const wi = WEIGHT_ORDER.indexOf(effectiveWk);
-          if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
-            const bk = WEIGHT_ORDER[wi + 1];
-            const bp = pickWeightPrice(r, densityUsed, bk);
-            if (bp !== undefined && bp !== base) {
-              const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + adj, r.pp, r.bare)}`;
-              neighborNote = neighborNote ? `${neighborNote} / ${wNote}` : wNote;
-            }
-          }
-        }
-        // 从remark中提取UC路径和特殊备注；备注顺序：港级通用 → 命中档备注（相邻档参考价独立换行显示，不拼进remark）
-        const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
-        const fullRemark = [portRemark, tierNote, ruleNote].filter(Boolean).join('；');
-        let routing = '';
-        let ucNote = '';
-        const rm = fullRemark.match(/路径:([^|]+)/);
-        if (rm) routing = rm[1].trim();
-        const limitNote = fullRemark.match(/(SCL|LIM)空转单件限重80kg/);
-        if (limitNote) ucNote = limitNote[0];
-        const gwTypeMatch = fullRemark.match(/[|]\s*(空转|卡转)\s*[|]/);
-        const gwType = gwTypeMatch ? gwTypeMatch[1] : '';
-        matches.push({
-          airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: effectiveWk,
-          base, final, adj, matchedDest: (r.dest||'').trim(),
-          density: densityUsed, remark: fullRemark, neighborNote, variants: vRefs, service: entryService,
-          pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType,
-          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote, tierCut
-        });
-      } else {
-        const availW = r.prices ? Object.keys(r.prices) : [];
-        const availD = r.densityPrices ? Object.keys(r.densityPrices) : [];
-        if (availW.length || availD.length) {
-          missing.push({
-            airline: s.airline, transit: s.transit || '', matchedDest: (r.dest||'').trim(),
-            avail: `重量档:${availW.map(k=>WEIGHT_LABEL[k]).join('/')||'无'} 比重档:${availD.join('/')||'无'}`,
-            sheetDate: s.date
-          });
-        }
-      }
-    });
-  });
-
-  // ===== 联程转运：目的港无直达表价时，用 LH 内置转运费 + hub(FRA) 表价报价 =====
-  const trInfo = getLHTransferFee(qd);
-  if (trInfo) {
-    // 只匹配 LH 航司的 hub 港表价（更新 LH 表价即自动联动）
-    sheets.forEach(s => {
-      if (s.airline !== LH_TRANSFER_FEES.airline || !s.rows || isSheetExpired(s)) return;
-      const hubRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), trInfo.hub));
-      if (!hubRows.length) return;
-      const adj = (wk === 'w45') ? 0 : currentAdjFor(s.airline, s.transit);
-      const effDk = (s.densityDef && s.densityDef.length)
-        ? (matchDensityDef(s.densityDef, densityRatio) || dk)
-        : dk;
-      // 该目的港在本 LH 表已有直航有效价时，不再走 hub 转运（避免直航与转运重复出价，如 VIE 表内已有价）
-      const directRows = s.rows.filter(r => destMatches(normalizeDest(r.dest), qd));
-      if (directRows.some(r => priceFromRow(r, wk, effDk).base !== undefined)) return;
-      // 遍历 hub 所有行（标准行+各比重行），取最低匹配价
-      let best = null, bestRow = null;
-      hubRows.forEach(hubRow => {
-        const p = priceFromRow(hubRow, wk, effDk);
-        if (p.base !== undefined && (!best || p.base < best.base)) { best = p; bestRow = hubRow; }
-      });
-      if (best) {
-        // 小货减价规则（hub 行自带 smallRule 时按询价毛重/体积条件应用）
-        const smallAdjT = applySmallRule(bestRow.smallRule, c.weight, c.volume);
-        // 命中档所在的 hub 行（取命中比重档对应的行），用于档级备注与相邻档参考价
-        const tierHubRow = hubRows.find(r => r.densityPrices && best.density && r.densityPrices[best.density])
-          || hubRows.find(r => r.density === 'flat') || hubRows[0];
-        // 命中档专属备注（托盘+N布卷+N、不大于6方、55分泡等档级加价）
-        const tierNoteT = (tierHubRow.densityPrices && best.density && tierHubRow.densityPrices[best.density] && tierHubRow.densityPrices[best.density].note) || '';
-        // 相邻比重档参考价：命中档前后各一档，与主价同口径（含转运费+adj）
-        let neighborNote = '';
-        if (s.densityDef && s.densityDef.length > 1 && best.density && tierHubRow.densityPrices && tierHubRow.densityPrices[best.density]) {
-          const di = s.densityDef.findIndex(d => d.key === best.density);
-          if (di >= 0) {
-            const nbrParts = [];
-            [di - 1, di + 1].forEach(ni => {
-              if (ni < 0 || ni >= s.densityDef.length) return;
-              const nk = s.densityDef[ni].key;
-              const ndp = tierHubRow.densityPrices[nk];
-              if (!ndp) return;
-              const np = ndp[best.weightKey] !== undefined ? ndp[best.weightKey] : ndp[wk];
-              if (np === undefined) return;
-              nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`);
-            });
-            if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
-          }
-        }
-        // 相邻重量档参考价（与主价同口径，含转运费）
-        {
-          const wi = WEIGHT_ORDER.indexOf(best.weightKey);
-          if (wi >= 0 && wi < WEIGHT_ORDER.length - 1) {
-            const bk = WEIGHT_ORDER[wi + 1];
-            const bp = pickWeightPrice(tierHubRow, best.density, bk);
-            if (bp !== undefined && bp !== best.base) {
-              const wNote = `${WEIGHT_LABEL[bk]}档参考 ¥${fmtPrice(bp + trInfo.fee + adj, tierHubRow.pp, tierHubRow.bare)}`;
-              neighborNote = neighborNote ? `${neighborNote} / ${wNote}` : wNote;
-            }
-          }
-        }
-        // 附 LH 表主价行完整备注（托盘/布卷/超155CM/计费重 说明）
-        const baseRemark = hubRows.find(r => (r.remark || '').includes('有效期'))?.remark || (hubRows.find(r => r.density === 'flat') || hubRows[0]).remark || '';
-        const fullRemarkT = [baseRemark, tierNoteT].filter(Boolean).join('；');
-        matches.push({
-          airline: s.airline, transit: s.transit || '', sheetDate: s.date, weightKey: best.weightKey,
-          base: best.base, final: best.base + trInfo.fee + adj + smallAdjT, adj,
-          matchedDest: qd, density: best.density,
-          remark: `经${trInfo.hub}转运 +${trInfo.fee}/kg${fullRemarkT ? '；' + fullRemarkT : ''}`,
-          neighborNote,
-          smallAdj: smallAdjT, smallRule: bestRow.smallRule
-        });
-      }
-    });
-  }
-
-  // AA128 联动：目的港在 AA128_ZONE 时附加联动条目（用 AA128 表 DFW 基准散价 + 区域加价），供参考展示
-  // DFW 是 hub 本身（直飞DFW表已有 DFW 行），不再出"转"条目，避免重复
-  if (AA128_ZONE[qd] && qd !== 'DFW') {
-    // 兼容两种存储格式：家版 airline='AA'+transit='直飞DFW'；公司版 airline 含'AA128'
-    const aa128 = sheets.find(s => {
-      const al = (s.airline||'').toUpperCase();
-      return !isSheetExpired(s) && ((al==='AA' && (s.transit||'')==='直飞DFW') || /AA128/.test(al));
-    });
-    if (aa128) {
-      const dfwRow = aa128.rows.find(r => normalizeDest(r.dest)==='DFW');
-      if (dfwRow) {
-        const aDk = (aa128.densityDef && aa128.densityDef.length) ? (matchDensityDef(aa128.densityDef, densityRatio) || dk) : dk;
-        const p = priceFromRow(dfwRow, wk, aDk);
-        if (p.base !== undefined) {
-          const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
-          const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
-          const bulkFinal = p.base + fee + adj;
-          // AA128 表级备注固定托盘加价（如"托盘+2/KGS"），散/托成对展示
-          const palM = (aa128.remark || '').match(/托盘\s*\+\s*(\d+(?:\.\d+)?)/);
-          const palDiff = palM ? +palM[1] : 0;
-          matches.push({ airline:'AA', transit:'直飞DFW', sheetDate: aa128.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density, matchedDest: qd, remark:'AA128直飞DFW转', aa128:true, service:'散货',
-            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': bulkFinal + palDiff } : null });
-        }
-      }
-    }
-  }
-
-  // JL 卡车二程联动：目的港在 JL_CANADA_POOL 且非YVR时附加联动条目（JL-YVR 基准价 + 卡车加价，散/托并列）
-  if (JL_CANADA_POOL[qd] !== undefined && qd !== 'YVR') {
-    const jl = findJLYvrSheet(sheets, isSheetExpired);
-    if (jl) {
-      const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
-      if (yvrRow) {
-        // JL-YVR 不分泡，二程只走平货价
-        const p = priceFromRow(yvrRow, wk, 'flat');
-        if (p.base !== undefined) {
-          const truckFee = jlExtractTruckFee(yvrRow);
-          const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qd];
-          const palDiff = jlExtractPalDiff(yvrRow, p);
-          const adj = (wk==='w45') ? 0 : currentAdjFor(jl.airline, jl.transit);
-          const bulkFinal = p.base + fee + adj;
-          const palFinal = palDiff > 0 ? p.base + palDiff + fee + adj : null;
-          matches.push({ airline:'JL', transit:'YVR卡转', sheetDate: jl.date, weightKey:p.weightKey, base:p.base, final:bulkFinal, adj, density:p.density,
-            matchedDest: qd, remark:`YVR卡转${palDiff>0?('；托盘+'+palDiff):''}`, jlCanada:true, service:'散货',
-            variants: palDiff > 0 ? { '散货': bulkFinal, '托盘': palFinal } : null });
-        }
-      }
-    }
-  }
-
-  // AA 经GRU 巴西内陆联动条目（供参考展示）：目的港在 AA_GRU_BRAZIL_POOL 时，AA 表 GRU 基准价 + 内陆转运附加费
-  // 附加费按计费重选档（2000+/1000+/500+/300+/100+，每票最低 MIN）；路径备注"GRU转运"
-  if (AA_GRU_BRAZIL_POOL[qd]) {
-    const ag = findAAGruRow(sheets, isSheetExpired, wk, densityRatio, dk);
-    if (ag && ag.p.base !== undefined) {
-      const entry = AA_GRU_BRAZIL_POOL[qd];
-      const add = gruAddOnPerKg(entry, c.chargeW);
-      const adj = (wk === 'w45') ? 0 : currentAdjFor(ag.sheet.airline, ag.sheet.transit);
-      const ruleAdj = applyDensityRule(ag.sheet.densityRule, c.weight, densityRatio);
-      const smallAdj = applySmallRule(ag.row.smallRule, c.weight, c.volume);
-      const final = ag.p.base + add + adj + ruleAdj + smallAdj;
-      const feeLbl = fmtPrice(add, false, false);
-      matches.push({ airline:'AA', transit:'GRU转运', sheetDate: ag.sheet.date, weightKey: ag.p.weightKey,
-        base: ag.p.base, final, adj, density: ag.p.density, matchedDest: qd,
-        remark: `GRU转运${qd}，转运费+${feeLbl}/kg（MIN ¥${fmtNum(entry.min,0)}/票）`, gruBrazil: true, addOn: add,
-        service:'散货', smallAdj, smallRule: ag.row.smallRule, ruleAdj, ruleNote: densityRuleNote(ag.sheet.densityRule) });
-    }
-  }
-
-  $('rateMatchCount').textContent = matches.length + ' 条';
-  // 存最低价供保存时用（含调价 adj 与联动/转运加价 fee，即生效后表价；备注里的档位说明由用户自行应用）
+  // 存最低价供保存时用
   if (matches.length) {
-    const best = matches.sort((a,b) => a.final - b.final)[0];
+    const best = matches[0];
     window.__currentRatePrice = best.final;
     window.__currentRateAirline = best.airline;
     window.__currentRateTransit = best.transit || null;
@@ -2173,13 +2038,12 @@ function updateRateMatch() {
   card.style.display = (matches.length || missing.length || mutedHits.length) ? 'block' : 'none';
   const box = $('rateMatchList');
   if (!matches.length && !missing.length && !mutedHits.length) {
-    // 完全没匹配到：显示卡片（含诊断），否则用户看不到原因
+    // 完全没匹配到：显示卡片（含诊断）
     card.style.display = 'block';
     const allDests = sheets.flatMap(s => s.rows ? s.rows.map(r => r.dest) : []);
     let dbg = `<div class="empty">表价库里没有 ${dest} 的当前价格</div>`;
     dbg += `<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;color:var(--text-3)">`;
     dbg += `表价库共 ${allDests.length} 个目的港：${allDests.slice(0,20).join(', ')}${allDests.length>20?'...':''}`;
-    // 诊断：GUA 在所有表中的存储明细
     const guaRows = sheets.flatMap(s => (s.rows||[]).filter(r => normalizeDest(r.dest) === dest).map(r => ({sheet:s, row:r})));
     if (guaRows.length) {
       dbg += `<br><b>${dest} 在库明细：</b>`;
@@ -2194,52 +2058,29 @@ function updateRateMatch() {
     box.innerHTML = dbg;
     return;
   }
-  // 去重：同一航司+中转点+目的港+路径只保留最新生效日期的表价（不同路径如GRU卡转/SCL空转分别保留）
-  const seen = {};
-  const deduped = [];
-  matches.sort((a,b) => a.final - b.final);
-  matches.forEach(m => {
-    const key = m.airline + '|' + m.transit + '|' + m.matchedDest + '|' + (m.routing || '') + '|' + (m.gwType || '');
-    if (!seen[key] || (m.sheetDate || '') > (seen[key].sheetDate || '')) {
-      seen[key] = m;
-    }
-  });
-  const finalMatches = Object.values(seen).sort((a,b) => a.final - b.final);
-  // 更新最低价
-  if (finalMatches.length) {
-    const best = finalMatches[0];
-    window.__currentRatePrice = best.final;
-    window.__currentRateAirline = best.airline;
-    window.__currentRateTransit = best.transit || null;
-    window.__currentRateDensity = best.density || null;
-  }
-  $('rateMatchCount').textContent = finalMatches.length + ' 条';
-  let html = finalMatches.map(m => {
+  $('rateMatchCount').textContent = matches.length + ' 条';
+  let html = matches.map(m => {
     const chl = channelLabel(m.airline, m.transit);
-    // 减价规则命中：最终展示价=表价+命中规则减价后的结果时，价格以橙色高亮显示（小货/重货等，任何航司）
     const smallAdj = m.smallAdj || 0;
     const sr = m.smallRule;
     const ruleAdj = m.ruleAdj || 0;
     const adjHits = [];
     if (sr && sr.cut && smallAdj < 0) adjHits.push(`小货-${sr.cut}`);
     if (ruleAdj < 0) adjHits.push(`重货-${-ruleAdj}`);
-    else if (m.tierCut > 0) adjHits.push(`重货-${m.tierCut}`);   // 表内比重档价已含重货减价（如 1:300 散 45 / 平散 49）
+    else if (m.tierCut > 0) adjHits.push(`重货-${m.tierCut}`);
     const smallHit = adjHits.length > 0;
     const denLbl = m.density ? DENSITY_LABEL[m.density] : null;
     const isUC = /^UC/i.test(m.airline || '');
-    // UC表价不显示100KG档（默认档），只显示比重档
     let weightPart = '';
     if (isUC) {
       if (denLbl) weightPart = ` · ${denLbl}`;
     } else {
       weightPart = ` · ${WEIGHT_LABEL[m.weightKey]}档${denLbl ? ` · ${denLbl}` : ''}`;
     }
-    // 第一行标题：航司中转 · 目的港 · 比重档 · 路径 | 空转/卡转 | 限重备注
     let titleLine = `<b>${chl || m.airline}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${m.transit}</span>` : ''} · ${m.matchedDest}${weightPart}`;
     if (m.routing) titleLine += ` · ${m.routing}`;
     const extras = [];
     if (m.gwType) extras.push(m.gwType);
-    // 兜底：SCL/LIM空转若未带限重备注，按routing二次中转港自动补上
     if (!m.ucNote && m.gwType === '空转') {
       const hubM = (m.routing || '').match(/PVG-[A-Z\/]+-(SCL|LIM)-[A-Z]+/i)
                 || (m.remark || '').match(/PVG-[A-Z\/]+-(SCL|LIM)-[A-Z]+/i);
@@ -2247,30 +2088,26 @@ function updateRateMatch() {
     }
     if (m.ucNote) extras.push(m.ucNote);
     if (extras.length) titleLine += ` | ${extras.join(' | ')}`;
-    // 第二行：表价生效日期 + UC表价关键备注（空转价/货机开口价/货机swap价）
     let metaLine = `表价生效 ${m.sheetDate}`;
     if (isUC) {
       const remark = m.remark || '';
-      const extras = [];
+      const ue = [];
       const airMatch = remark.match(/空转价=([\d.]+)/);
-      if (airMatch) extras.push('空转价=' + airMatch[1]);
+      if (airMatch) ue.push('空转价=' + airMatch[1]);
       const openMatch = remark.match(/货机开口价=([\d.]+)/);
-      if (openMatch) extras.push('货机开口价=' + openMatch[1]);
+      if (openMatch) ue.push('货机开口价=' + openMatch[1]);
       const swapMatch = remark.match(/货机swap(?:\s*space)?价=([\d.]+)/);
-      if (swapMatch) extras.push('货机swap价=' + swapMatch[1]);
-      if (extras.length) metaLine += ' · ' + extras.join(' / ');
+      if (swapMatch) ue.push('货机swap价=' + swapMatch[1]);
+      if (ue.length) metaLine += ' · ' + ue.join(' / ');
     } else {
       const hasPalVariant = m.variants && Object.keys(m.variants).some(k => /托盘$/.test(k));
       metaLine += m.remark ? (' · '+soloBulkNoteFor(stripMainPriceNote(m.remark), m.weightKey, !!hasPalVariant)) : '';
     }
-    // 相邻比重档参考价：独立换行显示（与主价同口径）
     const neighborLine = m.neighborNote
       ? `<div style="font-size:12px;color:var(--accent);margin-top:3px">${m.neighborNote}</div>`
       : '';
-    // 统配表价：显示各服务方案价格（散货/托盘成对显示，主价高亮）
     let variantsLine = '';
     if (m.variants && Object.keys(m.variants).length) {
-      // 按方案名分组（去掉"散货"/"托盘"后缀）
       const groups = {};
       const addToGroup = (label, price, isMain) => {
         const base = label.replace(/(散货|托盘)$/, '');
@@ -2284,7 +2121,6 @@ function updateRateMatch() {
         if (lb === m.service) return;
         addToGroup(lb, m.variants[lb], false);
       });
-      // 按散货价排序
       const sorted = Object.entries(groups).sort((a, b) => (a[1].bulk ?? 9999) - (b[1].bulk ?? 9999));
       variantsLine = '<div style="font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.7">' +
         sorted.map(([name, g]) => {
@@ -2297,7 +2133,7 @@ function updateRateMatch() {
         '</div>';
     }
     return `
-    <div class="similar-item" style="${m.final === finalMatches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
+    <div class="similar-item" style="${m.final === matches[0].final ? 'border-color:var(--green);background:var(--green-soft)' : ''}">
       <div class="similar-left">
         <div>${titleLine}</div>
         <div class="similar-meta">${metaLine}</div>
@@ -4593,7 +4429,10 @@ function hasY8AmsMasterTable() {
 let activeTransfer = 'LH';
 function _transferLines(g) {
   return Object.keys(g).sort((a, b) => a - b).map(f =>
-    `<div style="font-size:12px;margin:2px 0;color:var(--text-2)"><b style="display:inline-block;min-width:3.6em;text-align:right;color:var(--accent)">+${f}</b>　${g[f].join('/')}</div>`
+    `<div style="font-size:12px;margin:4px 0;color:var(--text-2);display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">` +
+      `<b style="flex:0 0 auto;min-width:3.6em;text-align:right;color:var(--accent);line-height:1.6">+${f}</b>` +
+      `<span style="flex:1 1 0;min-width:0;line-height:1.6;word-break:break-word">${g[f].join(' / ')}</span>` +
+    `</div>`
   ).join('');
 }
 function renderTransferList() {
