@@ -304,14 +304,12 @@
       flex: 0 0 100%;
       width: 100%;
       height: auto;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
       gap: 0;
       border-top: 1px solid var(--border);
-      scrollbar-width: none;
+      overflow-x: hidden;
     }
     .tabs::-webkit-scrollbar { display: none; }
-    .tab { padding: 10px 14px; white-space: nowrap; font-size: 13.5px; }
+    .tab { padding: 10px 2px; white-space: nowrap; font-size: 13px; flex: 1; min-width: 0; justify-content: center; }
     /* --- 主区域 --- */
     .main { padding: 12px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
     .card { padding: 14px; margin-bottom: 12px; }
