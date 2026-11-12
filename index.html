@@ -420,12 +420,6 @@
     }
   }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
-<script>
-if (typeof ExcelJS === 'undefined') {
-  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"><\/script>');
-}
-</script>
 </head>
 <body>
 
@@ -1010,16 +1004,25 @@ function loadAll() {
   } catch(e) { return []; }
 }
 function loadAllRaw() { loadAll(); return _allRawCache || []; }
+// 墓碑保留 90 天：足够所有设备同步完删除，超期清理防 localStorage 膨胀
+const TOMB_TTL_MS = 90 * 86400000;
+function pruneOldTombs(tombs) {
+  const now = Date.now();
+  return (tombs || []).filter(x => x.deleted && (now - (x.updatedAt || 0)) < TOMB_TTL_MS);
+}
+
 function saveAll(list) {
   // list 是 active 全量；保留旧墓碑（deleted 且 list 中已没有该 id），同步时推到云端
-  const tombs = (loadAllRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const tombs = pruneOldTombs((loadAllRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id)));
   const merged = list.concat(tombs);
   localStorage.setItem(STORE_KEY, JSON.stringify(merged));
   _allCache = list; _allRawCache = merged; _allDirty = false;
   syncToCloud('/api/inquiries', merged);
 }
 function tombstoneInq(id) {
-  const all = (loadAllRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  const all = (loadAllRaw() || [])
+    .map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x)
+    .filter(x => !x.deleted || (Date.now() - (x.updatedAt || 0)) < TOMB_TTL_MS);
   localStorage.setItem(STORE_KEY, JSON.stringify(all));
   _allRawCache = all;
   _allCache = all.filter(x => !x.deleted);
@@ -1468,6 +1471,9 @@ $('btnParse').addEventListener('click', () => {
     $('view-quick').appendChild(card);
 
     $('btnSaveMulti').addEventListener('click', () => {
+      if ($('btnSaveMulti').dataset.busy) return;
+      $('btnSaveMulti').dataset.busy = '1';
+      setTimeout(() => { delete $('btnSaveMulti').dataset.busy; }, 1000);
       // 读取表格里改后的值
       const rows = card.querySelectorAll('tbody tr');
       const all = loadAll();
@@ -2659,7 +2665,7 @@ function openDetail(id) {
         <span>泡重比 <b>1:${fmtNum(c.ratio,0)}</b></span>
       </div>
       ${r.remark?('<div style="margin-top:6px;color:var(--text-2)">备注：'+esc(stripMainPriceNote(r.remark))+'</div>'):''}
-      ${r.raw_text?('<div style="margin-top:6px;color:var(--text-3);font-size:12px">原文：'+r.raw_text+'</div>'):''}
+      ${r.raw_text?('<div style="margin-top:6px;color:var(--text-3);font-size:12px;white-space:pre-wrap;word-break:break-all">原文：'+esc(r.raw_text)+'</div>'):''}
     </div>
 
     <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:6px">
@@ -2671,7 +2677,7 @@ function openDetail(id) {
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
         <span style="font-weight:600;width:60px">外配</span>
-        <input id="fOuterSupplier" type="text" value="${r.outerSupplier||''}" placeholder="供应商名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <input id="fOuterSupplier" type="text" value="${esc(r.outerSupplier||'')}" placeholder="供应商名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
         <input id="fOuterPrice" type="number" step="0.1" value="${r.outerPrice||''}" placeholder="成本 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
         <button class="btn btn-ghost btn-sm" id="btnSaveOuter">保存</button>
       </div>
@@ -2710,7 +2716,7 @@ function openDetail(id) {
         '<span style="color:var(--green)">表价' + (x.ratePrice != null ? '¥' + fmtNum(x.ratePrice,2) : '-') + '</span>' +
         '<span style="color:var(--accent)">外配' + (x.outerPrice != null ? '¥' + fmtNum(x.outerPrice,2) : '-') + '</span>' +
         '<span style="color:var(--primary)">卖价' + (x.customerPrice != null ? '¥' + fmtNum(x.customerPrice,2) : '-') + '</span>' +
-        (x.outerSupplier ? '<span style="color:var(--text-3)">' + x.outerSupplier + '</span>' : '') +
+        (x.outerSupplier ? '<span style="color:var(--text-3)">' + esc(x.outerSupplier) + '</span>' : '') +
         '</div>'
       ).join('');
   } else {
@@ -3034,14 +3040,16 @@ function loadRates() {
 }
 function loadRatesRaw() { loadRates(); return _rateRawCache || []; }
 function saveRates(list) {
-  const tombs = (loadRatesRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const tombs = pruneOldTombs((loadRatesRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id)));
   const merged = list.concat(tombs);
   localStorage.setItem(RATE_KEY, JSON.stringify(merged));
   _rateCache = list; _rateRawCache = merged; _rateDirty = false;
   syncToCloud('/api/rates', merged);
 }
 function tombstoneRate(id) {
-  const all = (loadRatesRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  const all = (loadRatesRaw() || [])
+    .map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x)
+    .filter(x => !x.deleted || (Date.now() - (x.updatedAt || 0)) < TOMB_TTL_MS);
   localStorage.setItem(RATE_KEY, JSON.stringify(all));
   _rateRawCache = all;
   _rateCache = all.filter(x => !x.deleted);
@@ -4027,6 +4035,67 @@ function applyUCTextUpdate(baseRows, textUpdate) {
   });
 }
 
+// Excel 表头检测 + 列映射（独立函数，新增版式时在此扩展）
+function detectExcelHeader(grid, cellText) {
+  let headerIdx = -1;
+  let headers = [];
+  for (let i = 0; i < Math.min(grid.length, 20); i++) {
+    const r = grid[i].map(c => cellText(c).toUpperCase());
+    const hasDest = r.some(c => c.includes('DEST'));
+    const hasOrigin = r.some(c => c.includes('ORIGIN'));
+    const hasWeight = r.some(c => /^(45|100|300|500|1000)\s*KG/.test(c));
+    if (hasDest && (hasOrigin || hasWeight)) { headerIdx = i; headers = r; break; }
+  }
+  if (headerIdx < 0) throw new Error('没找到表头行（需要含 DESTINATION 列）');
+  const col = {};
+  headers.forEach((h, i) => {
+    if (h.includes('ORIGIN')) col.origin = i;
+    else if (h.includes('DEST')) col.dest = i;
+    else if (h.includes('TRANSIT') || h.includes('GATEWAY')) col.transit = i;
+    else if (h.includes('CUR')) col.cur = i;
+    else if (/^45\s*KG/.test(h)) col.w45 = i;
+    else if (/^100\s*KG/.test(h)) col.w100 = i;
+    else if (/^300\s*KG/.test(h)) col.w300 = i;
+    else if (/^500\s*KG/.test(h)) col.w500 = i;
+    else if (/^1000\s*KG/.test(h) || h.includes('1000')) col.w1000 = i;
+    else if (h.includes('T/T')) col.density = i;
+    else if (h.includes('REMARK') || h.includes('NOTE')) col.remark = i;
+  });
+  if (col.dest === undefined) throw new Error('没找到目的港列');
+  if (col.remark === undefined) {
+    for (let i = 0; i < headers.length; i++) {
+      if (i <= col.dest) continue;
+      const h = headers[i];
+      if (!h) continue;
+      if (/^(?:45|100|300|500|1000)\s*KG/.test(h)) continue;
+      if (/^CUR|^ORIGIN|^DEST/.test(h)) continue;
+      col.remark = i; break;
+    }
+  }
+  return { headerIdx, col, headers };
+}
+
+// LH 传统配新版式：收集右侧红字说明 + 底部补充行（MIN/+100KG）
+function collectLhNewLayoutNotes(grid, col, weightCols, headerIdx, cellText) {
+  const mappedCols = new Set([col.dest, col.density, col.remark, ...weightCols.map(k => col[k])]);
+  const notes = [];
+  grid.forEach((r, ri) => r.forEach((c, ci) => {
+    const t = cellText(c);
+    if (!t) return;
+    const hasPrice = weightCols.some(k => col[k] !== undefined && typeof r[col[k]].value === 'number' && !isNaN(r[col[k]].value));
+    if (!mappedCols.has(ci)) {
+      if (!(/[一-龥]|MIN|有效期|启用/.test(t))) return;
+      if (/上海|传统配|PVG|DEST|REMARK|T\/T/.test(t)) return;
+      if (!notes.includes(t)) notes.push(t);
+    } else if (!hasPrice && ri > headerIdx) {
+      if (/[一-龥]|MIN|\+100KG/.test(t) && !/启用/.test(t) && !/^\d+(\.\d+)?$/.test(t) && !/平散|平货|1\s*[：:比]/.test(t) && !/PVG|传统配|MUC|FRA/.test(t)) {
+        if (!notes.includes(t)) notes.push(t);
+      }
+    }
+  }));
+  return notes;
+}
+
 async function parseRateSheetToRowsEX(worksheet, transit) {
   const rowCount = worksheet.rowCount;
   const colCount = worksheet.columnCount;
@@ -4053,48 +4122,8 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
     return String(cell.value).trim();
   }
 
-  // 找表头行：必须含 DESTINATION；ORIGIN 可选（LH 传统配新版式只有 DEST 列），另一维由 ORIGIN 或重量档列名判定
-  let headerIdx = -1;
-  let headers = [];
-  for (let i = 0; i < Math.min(grid.length, 20); i++) {
-    const r = grid[i].map(c => cellText(c).toUpperCase());
-    const hasDest = r.some(c => c.includes('DEST'));
-    const hasOrigin = r.some(c => c.includes('ORIGIN'));
-    const hasWeight = r.some(c => /^(45|100|300|500|1000)\s*KG/.test(c));
-    if (hasDest && (hasOrigin || hasWeight)) {
-      headerIdx = i; headers = r; break;
-    }
-  }
-  if (headerIdx < 0) throw new Error('没找到表头行（需要含 DESTINATION 列）');
-
-  const col = {};
-  headers.forEach((h, i) => {
-    if (h.includes('ORIGIN')) col.origin = i;
-    else if (h.includes('DEST')) col.dest = i;
-    else if (h.includes('TRANSIT') || h.includes('GATEWAY')) col.transit = i;
-    else if (h.includes('CUR')) col.cur = i;
-    else if (/^45\s*KG/.test(h)) col.w45 = i;
-    else if (/^100\s*KG/.test(h)) col.w100 = i;
-    else if (/^300\s*KG/.test(h)) col.w300 = i;
-    else if (/^500\s*KG/.test(h)) col.w500 = i;
-    else if (/^1000\s*KG/.test(h) || h.includes('1000')) col.w1000 = i;
-    else if (h.includes('T/T')) col.density = i;
-    else if (h.includes('REMARK') || h.includes('NOTE')) col.remark = i;
-  });
-  if (col.dest === undefined) throw new Error('没找到目的港列');
-
-  // 若没有标准 REMARK/NOTE 列，用 DEST 之后第一个"非纯重量档、非货币、非空"列作为备注列
-  // （如上海AA 的"日本方向转运南美... "说明列、AA128 的"每天航班 托盘+2/KGS..."说明列）
-  if (col.remark === undefined) {
-    for (let i = 0; i < headers.length; i++) {
-      if (i <= col.dest) continue;
-      const h = headers[i];
-      if (!h) continue;
-      if (/^(?:45|100|300|500|1000)\s*KG/.test(h)) continue;   // 纯重量档列名
-      if (/^CUR|^ORIGIN|^DEST/.test(h)) continue;
-      col.remark = i; break;
-    }
-  }
+  // 表头检测 + 列映射（独立函数，便于新增版式）
+  const { headerIdx, col, headers } = detectExcelHeader(grid, cellText);
 
   const weightCols = ['w45','w100','w300','w500','w1000'].filter(k => col[k] !== undefined);
   const merged = {};
@@ -4316,26 +4345,8 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
   }
   // LH 传统配新版式：收集右侧红字说明（高度超限/计费重超限/有效期）与底部补充行（MIN +100KG、启用日期）
   if (isLhNewLayout) {
-    const mappedCols = new Set([col.dest, col.density, col.remark, ...weightCols.map(k => col[k])]);
-    const notes = [];
-    grid.forEach((r, ri) => r.forEach((c, ci) => {
-      const t = cellText(c);
-      if (!t) return;
-      // 真实价格单元格是数值；"+100KG"/"MIN" 等文本不计价格，归入补充说明行
-      const hasPrice = weightCols.some(k => col[k] !== undefined && typeof r[col[k]].value === 'number' && !isNaN(r[col[k]].value));
-      if (!mappedCols.has(ci)) {
-        // 右侧非映射列：只收说明性文本，排除标题/列名
-        if (!(/[一-龥]|MIN|有效期|启用/.test(t))) return;
-        if (/上海|传统配|PVG|DEST|REMARK|T\/T/.test(t)) return;
-        if (!notes.includes(t)) notes.push(t);
-      } else if (!hasPrice && ri > headerIdx) {
-        // 档标签行之后、无价格的补充行：MIN、+100KG 等最低计费说明；启用日期已由 sheetDate 承载，不重复进备注
-        if (/[一-龥]|MIN|\+100KG/.test(t) && !/启用/.test(t) && !/^\d+(\.\d+)?$/.test(t) && !/平散|平货|1\s*[：:比]/.test(t) && !/PVG|传统配|MUC|FRA/.test(t)) {
-          if (!notes.includes(t)) notes.push(t);
-        }
-      }
-    }));
-    if (notes.length) out.sheetRemark = (out.sheetRemark ? out.sheetRemark + '；' : '') + notes.join('；');
+    const lhNotes = collectLhNewLayoutNotes(grid, col, weightCols, headerIdx, cellText);
+    if (lhNotes.length) out.sheetRemark = (out.sheetRemark ? out.sheetRemark + '；' : '') + lhNotes.join('；');
   }
   // 经HND（上海AA）：同目的港有 viaNRT 行时纯直航无效；归一 dest 并把各档合并一行
   if (transit === '经HND') { const m = mergeHNDRows(out); m.sheetRemark = out.sheetRemark; return m; }
@@ -4345,7 +4356,32 @@ async function parseRateSheetToRowsEX(worksheet, transit) {
 let parsedRows = null; // 预览缓存
 
 // Excel 导入
-$('btnImportExcel').addEventListener('click', () => $('excelFile').click());
+// ExcelJS 懒加载：首屏不加载 900KB，点导入时才拉
+function ensureExcelJS() {
+  if (window.ExcelJS) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://fastly.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => {
+      // jsDelivr 失败 fallback cdnjs
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+      s2.onload = () => resolve();
+      s2.onerror = () => reject(new Error('ExcelJS 加载失败，请检查网络'));
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  });
+}
+
+$('btnImportExcel').addEventListener('click', async () => {
+  if (!window.ExcelJS) {
+    toast('正在加载 Excel 组件...');
+    try { await ensureExcelJS(); } catch (e) { toast(e.message); return; }
+  }
+  $('excelFile').click();
+});
 
 // 手动新增表价
 // 切主面板：识别文字表价 / 转运费（默认收起；再点当前按钮收起）
@@ -4632,14 +4668,16 @@ function loadAdjs() {
 }
 function loadAdjsRaw() { loadAdjs(); return _adjRawCache || []; }
 function saveAdjs(list) {
-  const tombs = (loadAdjsRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id));
+  const tombs = pruneOldTombs((loadAdjsRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id)));
   const merged = list.concat(tombs);
   localStorage.setItem(ADJ_KEY, JSON.stringify(merged));
   _adjCache = list; _adjRawCache = merged; _adjDirty = false;
   syncToCloud('/api/adjustments', merged);
 }
 function tombstoneAdj(id) {
-  const all = (loadAdjsRaw() || []).map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x);
+  const all = (loadAdjsRaw() || [])
+    .map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x)
+    .filter(x => !x.deleted || (Date.now() - (x.updatedAt || 0)) < TOMB_TTL_MS);
   localStorage.setItem(ADJ_KEY, JSON.stringify(all));
   _adjRawCache = all;
   _adjCache = all.filter(x => !x.deleted);
@@ -4959,6 +4997,112 @@ function parseSmallRule(t) {
 }
 // 服务段动态识别（1-2天 / 3-4天 / 1-3天 / 5-7天 等）；主价 = 最后一段（慢服务）；variants = 各服务段 散货/托盘
 // 无 "X-Y天" 段标签时按单段解析；目的港排除出发港（PVG 等）取价格块前的三字码
+// ===== 策略模式：文字表价 parser 拆分 =====
+// 每个 parser 独立成函数，入参 (text, rawText, ctx)，返回 {dest,date,ok,rows} 或 null。
+// ctx 由主入口统一提取：{ dest, date, isUnified, smallRuleParsed }。
+// 新增航司文字版：写一个 parseXXX 函数 → push 到 UNIFIED_TEXT_PARSERS 数组即可，不动主流程。
+
+// DL 经HNL 分组报价格式（裸运费）
+function parseDLBareRate(text, rawText, ctx) {
+  if (!/裸运费|平散\s*\d+\s*裸|\+45级/.test(text) || ctx.isUnified) return null;
+  const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
+  const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : ctx.date;
+  const { tiers: dTiers, palCut: dPal } = parseHeavyTiers(text);
+  const heavyDefs = dTiers.length ? dTiers : [{ key: '1:300+', min: 300, scut: 6 }];
+  const densityDef = buildDensityDef([...heavyDefs.map(d => ({ key: d.key, min: d.min })), { key: 'flat', flat: true }]);
+  const wAll = ['w45','w100','w300','w500','w1000'];
+  const add45NA = (text.match(/在平散的基础上\+4\/\+45级\+(\d+)/)||[])[1] || 10;
+  const add45SA = (text.match(/其他南美点[\s\S]*?\+45级\+(\d+)/)||[])[1] || 15;
+  const baseG = {
+    'DTW/MSP/SLC/LAX': +(text.match(/DTW\s*\/\s*MSP\s*\/\s*SLC\s*\/\s*LAX\s*：\s*平散\s*(\d+)\s*裸/)||[])[1],
+    '其他美国本土点': +(text.match(/其他美国本土点：\s*平散\s*(\d+)\s*裸/)||[])[1],
+    '加拿大': +(text.match(/加拿大：\s*平散\s*(\d+)\s*裸/)||[])[1],
+    '其他南美点': +(text.match(/其他南美点：\s*平散\s*(\d+)\s*裸/)||[])[1]
+  };
+  const makeDLRow = (base, add45) => {
+    const densityPrices = { flat: {} }, tDP = { flat: {} };
+    wAll.forEach(w => { densityPrices.flat[w] = (w === 'w45') ? base + add45 : base; });
+    wAll.forEach(w => { tDP.flat[w] = (w === 'w45') ? base + 4 + add45 : base + 4; });
+    heavyDefs.forEach(d => {
+      densityPrices[d.key] = {}; tDP[d.key] = {};
+      const po = dPal[d.key] !== undefined ? dPal[d.key] : d.scut;
+      wAll.forEach(w => { densityPrices[d.key][w] = (w === 'w45') ? base - d.scut + add45 : base - d.scut; });
+      wAll.forEach(w => { tDP[d.key][w] = (w === 'w45') ? base + 4 - po + add45 : base + 4 - po; });
+    });
+    const remark = `标托+4，45级+${add45}，重货${heavyDefs.map(d => `1:${d.min}散-${d.scut}`).join('/')}`;
+    return { densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', remark, bare: true, gwRule: { t300: 200, tAll: 300 } };
+  };
+  const DLA = ['DTW','MSP','SLC','LAX'];
+  const DL_NON_US = ['YUL','YYZ','YVR','MEX','CUN','EZE','SCL','BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','PUJ','STI'];
+  const DLUS = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] && !DLA.includes(c) && !DL_NON_US.includes(c));
+  const DLCAN = ['YUL','YYZ'];
+  const DLSA = ['BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','CUN','MEX','PUJ','STI'];
+  const destList = [];
+  DLA.forEach(c => destList.push([c, baseG['DTW/MSP/SLC/LAX'], add45NA]));
+  DLUS.forEach(c => destList.push([c, baseG['其他美国本土点'], add45NA]));
+  DLCAN.forEach(c => destList.push([c, baseG['加拿大'], add45NA]));
+  DLSA.forEach(c => destList.push([c, baseG['其他南美点'], add45SA]));
+  const rows = destList.filter(([c, b]) => b && c).map(([c, b, a]) => {
+    const r = makeDLRow(+b, +a); r.dest = c; return r;
+  });
+  if (!rows.length) return null;
+  const note = text.match(/GW>(\d+)kg可适用1:\d+比重价；GW>(\d+)kg可适用所有比重价/);
+  if (note) rows.forEach(r => r.remark += `；GW>${note[1]}kg可适用1:300比重价；GW>${note[2]}kg可适用所有比重价`);
+  return { dest: rows.map(r => r.dest).join('/'), date: dateH, ok: true, rows };
+}
+
+// AA 经HNL 分组报价：美国本土点/墨西哥/南美 分组 + 目的港散价++ + 标托+4 + 重货
+function parseAAHnlRate(text, rawText, ctx) {
+  if (!/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text)) return null;
+  if (/裸运费|平散\s*\d+\s*裸|\+45级|平散货|平托\s+\d|1[:：]\d+\s+\d|《1比/.test(text)) return null;
+  if (ctx.isUnified) return null;
+  const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
+  const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : ctx.date;
+  const ports = {};
+  const reP = /((?:[A-Z]{3}\s*[\/ ]\s*)*[A-Z]{3})\s*散?\s*[:：]?\s*(\d+)\s*\+{1,2}/g;
+  let px;
+  while ((px = reP.exec(text))) {
+    const codes = px[1].split(/[\/ ]+/).map(s => s.trim()).filter(s => s.length === 3);
+    const digit = +px[2];
+    codes.forEach(c => { if (ports[c] === undefined) ports[c] = digit; });
+  }
+  const USH = Object.keys(AA128_ZONE).filter(c => AA128_ZONE[c] === 'US');
+  const DFW1 = ['LAX', 'ORD', 'PHX'];
+  const OTH_US = USH.filter(c => c !== 'DFW' && !DFW1.includes(c));
+  const grpRe = /(DFW[＋+]\s*1段|其他北美点|其他美国本土点)\s*散?\s*[:：]?\s*(\d+)\s*\+{1,2}/gi;
+  let gx;
+  while ((gx = grpRe.exec(text))) {
+    const isDFW1 = /DFW[＋+]\s*1/.test(gx[1].toUpperCase());
+    const target = isDFW1 ? DFW1 : OTH_US;
+    target.forEach(c => { if (ports[c] === undefined) ports[c] = +gx[2]; });
+  }
+  const SKIP_HNL = /^(GRU|SCL|EZE|MVD|ASU|LPB|VVI)$/;
+  const destList = Object.keys(ports).filter(c => !SKIP_HNL.test(c));
+  if (!destList.length) return null;
+  const { tiers: hTiers, palCut: hPal } = parseHeavyTiers(text);
+  const heavyDefs = hTiers.length ? hTiers : [{ key: '1:300+', min: 300, scut: 6 }];
+  const densityDef = buildDensityDef([...heavyDefs.map(d => ({ key: d.key, min: d.min })), { key: 'flat', flat: true }]);
+  const hDesc = heavyDefs.map(d => `1:${d.min}散-${d.scut}`).join('/');
+  let remark = `标托+4，重货${hDesc}`;
+  const hPalKeys = Object.keys(hPal);
+  if (hPalKeys.length) remark += `/${hPalKeys.map(k => `托-${hPal[k]}`).join('/')}`;
+  if (!/GW\s*[≥>]/.test(text)) remark += '；GW≥200kg可适用1:300比重价；GW≥300kg可适用所有比重价';
+  const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
+  const toDP = (d) => { const o = {}; wAll.forEach(w => o[w] = d); return o; };
+  const rows = destList.map(c => {
+    const base = ports[c];
+    const densityPrices = { flat: toDP(base) };
+    const tDP = { flat: toDP(base + 4) };
+    heavyDefs.forEach(d => {
+      densityPrices[d.key] = toDP(base - d.scut);
+      const po = hPal[d.key] !== undefined ? hPal[d.key] : d.scut;
+      tDP[d.key] = toDP(base + 4 - po);
+    });
+    return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark, gwRule: { t300: 200, tAll: 300 } };
+  });
+  return { dest: destList.join('/'), date: dateH, ok: true, rows };
+}
+
 function parseUnifiedRateText(text) {
   const rawText = String(text || '');
   text = rawText.replace(/\s+/g, ' ').replace(/[‐‑‒–—]/g, '-');
@@ -4981,279 +5125,192 @@ function parseUnifiedRateText(text) {
   // 统配表价快速通道：有托盘/散货+价格，或有重托/重散/泡托/泡散，直接走统配表解析
   const isUnified = /托盘\s*\d|散货\s*\d|重托|重散|泡托|泡散/.test(text);
   const smallRuleParsed = parseSmallRule(rawText);
+  const ctx = { dest, date, isUnified, smallRuleParsed };
 
-  // ===== DL 经HNL 分组报价格式（裸运费） =====
-  if (/裸运费|平散\s*\d+\s*裸|\+45级/.test(text) && !isUnified) {
-    const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
-    const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : date;
-    const { tiers: dTiers, palCut: dPal } = parseHeavyTiers(text);
-    const heavyDefs = dTiers.length ? dTiers : [{ key: '1:300+', min: 300, scut: 6 }];
-    const densityDef = buildDensityDef([...heavyDefs.map(d => ({ key: d.key, min: d.min })), { key: 'flat', flat: true }]);
-    const wAll = ['w45','w100','w300','w500','w1000'];
-    const add45NA = (text.match(/在平散的基础上\+4\/\+45级\+(\d+)/)||[])[1] || 10;
-    const add45SA = (text.match(/其他南美点[\s\S]*?\+45级\+(\d+)/)||[])[1] || 15;
-    const baseG = {
-      'DTW/MSP/SLC/LAX': +(text.match(/DTW\s*\/\s*MSP\s*\/\s*SLC\s*\/\s*LAX\s*：\s*平散\s*(\d+)\s*裸/)||[])[1],
-      '其他美国本土点': +(text.match(/其他美国本土点：\s*平散\s*(\d+)\s*裸/)||[])[1],
-      '加拿大': +(text.match(/加拿大：\s*平散\s*(\d+)\s*裸/)||[])[1],
-      '其他南美点': +(text.match(/其他南美点：\s*平散\s*(\d+)\s*裸/)||[])[1]
-    };
-    const makeDLRow = (base, add45) => {
-      const densityPrices = { flat: {} }, tDP = { flat: {} };
-      wAll.forEach(w => { densityPrices.flat[w] = (w === 'w45') ? base + add45 : base; });
-      wAll.forEach(w => { tDP.flat[w] = (w === 'w45') ? base + 4 + add45 : base + 4; });
-      heavyDefs.forEach(d => {
-        densityPrices[d.key] = {}; tDP[d.key] = {};
-        const po = dPal[d.key] !== undefined ? dPal[d.key] : d.scut;
-        wAll.forEach(w => { densityPrices[d.key][w] = (w === 'w45') ? base - d.scut + add45 : base - d.scut; });
-        wAll.forEach(w => { tDP[d.key][w] = (w === 'w45') ? base + 4 - po + add45 : base + 4 - po; });
-      });
-      const remark = `标托+4，45级+${add45}，重货${heavyDefs.map(d => `1:${d.min}散-${d.scut}`).join('/')}`;
-      return { densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', remark, bare: true, gwRule: { t300: 200, tAll: 300 } };
-    };
-    const DLA = ['DTW','MSP','SLC','LAX'];
-    const DL_NON_US = ['YUL','YYZ','YVR','MEX','CUN','EZE','SCL','BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','PUJ','STI'];
-    const DLUS = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] && !DLA.includes(c) && !DL_NON_US.includes(c));
-    const DLCAN = ['YUL','YYZ'];
-    const DLSA = ['BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','CUN','MEX','PUJ','STI'];
-    const destList = [];
-    DLA.forEach(c => destList.push([c, baseG['DTW/MSP/SLC/LAX'], add45NA]));
-    DLUS.forEach(c => destList.push([c, baseG['其他美国本土点'], add45NA]));
-    DLCAN.forEach(c => destList.push([c, baseG['加拿大'], add45NA]));
-    DLSA.forEach(c => destList.push([c, baseG['其他南美点'], add45SA]));
-    const rows = destList.filter(([c, b]) => b && c).map(([c, b, a]) => {
-      const r = makeDLRow(+b, +a); r.dest = c; return r;
-    });
-    if (rows.length) {
-      const note = text.match(/GW>(\d+)kg可适用1:\d+比重价；GW>(\d+)kg可适用所有比重价/);
-      if (note) rows.forEach(r => r.remark += `；GW>${note[1]}kg可适用1:300比重价；GW>${note[2]}kg可适用所有比重价`);
-      return { dest: rows.map(r => r.dest).join('/'), date: dateH, ok: true, rows };
+  // ===== 策略路由：按优先级遍历 parser，命中即返回 =====
+  const dlRes = parseDLBareRate(text, rawText, ctx);
+  if (dlRes) return dlRes;
+  const aaRes = parseAAHnlRate(text, rawText, ctx);
+  if (aaRes) return aaRes;
+
+  const ocrSimple = parseOcrSimpleRate(text, rawText, ctx);
+  if (ocrSimple) return ocrSimple;
+  const ocrDensity = parseOcrDensityRate(text, rawText, ctx);
+  if (ocrDensity) return ocrDensity;
+
+  const jlRes = parseJlPalLooseRate(text, rawText, ctx);
+  if (jlRes) return jlRes;
+  const latamRes = parseLatamSharedRate(text, rawText, ctx);
+  if (latamRes) return latamRes;
+
+  return parseUnifiedMain(text, rawText, ctx);
+}
+
+// OCR 简单目的港+价格格式（AA interline 等）：GRU 67 EZE 65 UIO 61
+function parseOcrSimpleRate(text, rawText, ctx) {
+  if (!/\b[A-Z]{3}\s+\d+(?:\.\d+)?\b/.test(text)) return null;
+  if (/裸运费|美国本土点|平散|托盘|散货|重托|重散|泡托|泡散|1:\d+\s*\/\s*\d+/.test(text)) return null;
+  if (ctx.isUnified) return null;
+  const wAll = ['w45','w100','w300','w500','w1000'];
+  const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
+  const portRe = /\b([A-Z]{3})\s+(\d+(?:\.\d+)?)/g;
+  const rows = [], seen = {};
+  let pm;
+  while ((pm = portRe.exec(text))) {
+    if (seen[pm[1]]) continue; seen[pm[1]] = true;
+    const price = +pm[2];
+    rows.push({ dest: pm[1], densityDef: buildDensityDef([{key:'flat',flat:true}]), densityPrices: {flat: toDP(price)}, service: '散货', remark: '' });
+  }
+  if (rows.length < 2) return null;
+  return { dest: rows.map(r=>r.dest).join('/'), date: ctx.date, ok: true, rows };
+}
+
+// OCR 比重档×重量档格式（LH 等）：32 32 32 33 <1:80 / 平散货 35 35 35 36
+function parseOcrDensityRate(text, rawText, ctx) {
+  if (!/(平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:)/.test(text)) return null;
+  if (!/\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text)) return null;
+  if (/托盘\s+\d|1:\d+\s+\d/.test(text)) return null;
+  if (ctx.isUnified) return null;
+  const cleanLabel = (s) => s.replace(/《/g,'<').replace(/比/g,':').replace(/／/g,'/').replace(/：/g,':');
+  const parseLabel = (label) => {
+    label = cleanLabel(label);
+    if (/平散货|平托/.test(label)) return { key:'flat', flat:true };
+    let m = label.match(/<\s*1?[:：比]?(\d{2,3})/);
+    if (m) return { key:'<1:'+m[1], max:+m[1] };
+    m = label.match(/[≥>]?\s*1?[:：比]?(\d{2,4})/);
+    if (m && +m[1] >= 100) return { key:'1:'+m[1]+'+', min:+m[1] };
+    return null;
+  };
+  const lines = rawText.split(/\n/).map(l => l.trim()).filter(l => l);
+  const densityRows = [];
+  lines.forEach(line => {
+    if (/DEST|100KG|300KG|500KG|1000KG|REMARK|有效期|航班|ETD|ETA|MUST GO|不分泡|生效日期|备注|二程|仅限|可议价|单议|转统配|PVG-|上海LH|航司|天天|D\d{4}|^\d{4}$/.test(line)) return;
+    const cells = line.split(/\s+/);
+    let labelIdx = -1;
+    for (let i=0;i<cells.length;i++) {
+      if (/平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:/.test(cells[i])) { labelIdx = i; break; }
+    }
+    if (labelIdx < 0) return;
+    const labelInfo = parseLabel(cells[labelIdx]);
+    if (!labelInfo) return;
+    let prices = [];
+    for (let i=0;i<labelIdx;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
+    if (prices.length < 2) {
+      prices = [];
+      for (let i=labelIdx+1;i<cells.length;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
+    }
+    if (prices.length < 2) return;
+    const dp = {};
+    const wMap = ['w100','w300','w500','w1000'];
+    prices.forEach((p, i) => { if (wMap[i]) dp[wMap[i]] = p; });
+    dp.w45 = dp.w100;
+    densityRows.push({ ...labelInfo, dp });
+  });
+  if (densityRows.length < 2) return null;
+  const densityDef = buildDensityDef(densityRows.map(d => d.flat ? {key:'flat',flat:true} : (d.max ? {key:d.key,max:d.max} : {key:d.key,min:d.min})));
+  const densityPrices = {};
+  densityRows.forEach(d => { densityPrices[d.key] = d.dp; });
+  const DEPOT2 = ['PVG','SHA','HKG','PEK','CAN','SZX','TSN','CGO','TIT','REM','ETA','ETD','DEST','DES','EST','KG','上海','REMARK','ARK'];
+  let destCodes = [];
+  const stickyMatches = rawText.match(/[A-Z]{6,7}/g) || [];
+  stickyMatches.forEach(s => {
+    if (s.length === 6) {
+      const c1 = s.slice(0,3), c2 = s.slice(3,6);
+      if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) destCodes.push(c1, c2);
+    } else if (s.length === 7) {
+      const c1 = s.slice(0,3), c2 = s.slice(4,7);
+      if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) destCodes.push(c1, c2);
+    }
+  });
+  const standalone = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !DEPOT2.includes(c) && !destCodes.includes(c));
+  const allCodes2 = [...destCodes, ...standalone];
+  const destList = allCodes2.length ? allCodes2.slice(0, 3) : ['未知'];
+  const rows = destList.map(d => ({ dest: d, densityDef, densityPrices, service: '散货', remark: '' }));
+  return { dest: destList.join('/'), date: ctx.date, ok: true, rows };
+}
+
+// JL-YVR 散货/托盘并列：散48 托盘53 卡车+1
+function parseJlPalLooseRate(text, rawText, ctx) {
+  if (!/(^|\s)散\s*\d+(?:\.\d+)?/.test(text)) return null;
+  if (!/托盘\s*\d+(?:\.\d+)?/.test(text)) return null;
+  if (/美国本土点|裸运费|平散货|泡散|重散|重托|泡托/.test(text)) return null;
+  if (ctx.isUnified) return null;
+  const wKeys = ['w100','w300','w500','w1000'];
+  const looseM = text.match(/(^|\s)散\s*(\d+(?:\.\d+)?)/);
+  const palM = text.match(/托盘\s*(\d+(?:\.\d+)?)/);
+  const truckM = text.match(/卡车\s*\+?\s*(\d+(?:\.\d+)?)/);
+  if (!looseM || !palM) return null;
+  const looseV = +looseM[2], palV = +palM[1];
+  const dp = {};
+  wKeys.forEach(w => dp[w] = looseV);
+  const densityDef = buildDensityDef([{key:'flat',flat:true}]);
+  const densityPrices = { flat: dp };
+  const palDiff = palV - looseV;
+  const truckFee = truckM ? +truckM[1] : null;
+  let dest = '未知';
+  const titleM = rawText.match(/[A-Z]{2}\s*[-–—]\s*([A-Z]{3})/);
+  if (titleM) dest = titleM[1];
+  else {
+    const codes = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !['PVG','SHA','HKG','ETD','ETA'].includes(c));
+    if (codes.length) dest = codes[0];
+  }
+  const remarkParts = [];
+  if (palDiff > 0) remarkParts.push(`托盘+${palDiff}`);
+  if (truckFee != null) remarkParts.push(`卡车+${truckFee}`);
+  const row = { dest, densityDef, densityPrices, service: '散货', remark: remarkParts.join('；'), palDiff: palDiff > 0 ? palDiff : 0, truckFee };
+  return { dest, date: ctx.date, ok: true, rows: [row] };
+}
+
+// 南美多港并列 + 共用比重阶梯：GRU 1:300/500/800 50/48/46 平货 52
+function parseLatamSharedRate(text, rawText, ctx) {
+  if (!/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text)) return null;
+  if (ctx.isUnified) return null;
+  const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
+  const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
+  const portRe = /\b([A-Z]{3})\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(?:平货|平散|平)?\s*[:：]?\s*(\d+(?:\.\d+)?)?/g;
+  const rows = [], seen = {};
+  let pm;
+  while ((pm = portRe.exec(text))) {
+    if (seen[pm[1]]) continue; seen[pm[1]] = true;
+    const flatV = pm[5] ? +pm[5] : +pm[2];
+    rows.push({ c: pm[1], m300: +pm[2], m500: +pm[3], m800: +pm[4], flatV });
+  }
+  if (!rows.length) return null;
+  const bub = {}, bubRe = /1:(\d+)\/(\d+)\/(\d+)\/(\d+)\/(\d+)\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)/;
+  const bm = text.match(bubRe);
+  if (bm) [bm[1], bm[2], bm[3], bm[4], bm[5]].forEach((k, i) => bub[+k] = +bm[6 + i]);
+  const bubOnly = /仅限\s*([A-Z]{3}(?:\s*\/\s*[A-Z]{3})*)/i.exec(text);
+  const bubCodes = bubOnly ? bubOnly[1].split(/\s*\/\s*/) : [];
+  const hk = Object.keys(bub).map(Number).sort((a, b) => b - a);
+  const bubAvail = bubCodes.length ? `泡货100K起以上仅限${bubCodes.join('/')}` : '';
+  let heavyCode = '';
+  {
+    const hi = text.indexOf('重货超低价');
+    if (hi >= 0) {
+      const before = text.slice(Math.max(0, hi - 120), hi);
+      const mm = /([A-Z]{3})[^A-Z]*$/.exec(before);
+      if (mm) heavyCode = mm[1];
     }
   }
+  const out = rows.map(r => {
+    const parts = [{ key: '1:300+', min: 300 }, { key: '1:500+', min: 500 }, { key: '1:800+', min: 800 }, { key: 'flat', flat: true }];
+    const densityPrices = { '1:300+': toDP(r.m300), '1:500+': toDP(r.m500), '1:800+': toDP(r.m800), flat: toDP(r.flatV) };
+    const remarks = [];
+    let bulkMinGw = 0;
+    if (bubCodes.includes(r.c) && hk.length) {
+      hk.forEach(k => { parts.unshift({ key: '<1:' + k, max: k }); densityPrices['<1:' + k] = toDP(bub[k]); });
+      remarks.push(bubAvail);
+      bulkMinGw = 100;
+    }
+    if (heavyCode === r.c) remarks.push('重货超低价');
+    return { dest: r.c, densityDef: buildDensityDef(parts), densityPrices, service: '散货', remark: remarks.join('；'), bulkMinGw };
+  });
+  if (!out.length) return null;
+  return { dest: out.map(r => r.dest).join('/'), date: ctx.date, ok: true, rows: out };
+}
 
-  // ===== AA 分组报价格式（经HNL）：美国本土点/墨西哥/南美 分组 + 目的港散价++ + 标托+4 + 重货 =====
-  if (/美国本土点|平散|标准比例托盘|在散货的基础上/.test(text) && !/裸运费|平散\s*\d+\s*裸|\+45级|平散货|平托\s+\d|1[:：]\d+\s+\d|《1比/.test(text) && !isUnified) {
-    const dM = text.match(/^(\d{1,2})\s*[-月/]\s*(\d{1,2})/);
-    const dateH = dM ? `${new Date().getFullYear()}-${String(+dM[1]).padStart(2,'0')}-${String(+dM[2]).padStart(2,'0')}` : date;
-    const ports = {};
-    // 目的港(+同价多港) + 散货价++；++ 仅为标记（入库用显示数字）
-    const reP = /((?:[A-Z]{3}\s*[\/ ]\s*)*[A-Z]{3})\s*散?\s*[:：]?\s*(\d+)\s*\+{1,2}/g;
-    let px;
-    while ((px = reP.exec(text))) {
-      const codes = px[1].split(/[\/ ]+/).map(s => s.trim()).filter(s => s.length === 3);
-      const digit = +px[2];
-      codes.forEach(c => { if (ports[c] === undefined) ports[c] = digit; });
-    }
-    // 组价展开：DFW+1段（LAX/ORD/PHX）与其他北美点（其余美国本土港）
-    const USH = Object.keys(AA128_ZONE).filter(c => AA128_ZONE[c] === 'US');
-    const DFW1 = ['LAX', 'ORD', 'PHX'];
-    const OTH_US = USH.filter(c => c !== 'DFW' && !DFW1.includes(c));
-    const grpRe = /(DFW[＋+]\s*1段|其他北美点|其他美国本土点)\s*散?\s*[:：]?\s*(\d+)\s*\+{1,2}/gi;
-    let gx;
-    while ((gx = grpRe.exec(text))) {
-      const isDFW1 = /DFW[＋+]\s*1/.test(gx[1].toUpperCase());
-      const target = isDFW1 ? DFW1 : OTH_US;
-      target.forEach(c => { if (ports[c] === undefined) ports[c] = +gx[2]; });
-    }
-    const SKIP_HNL = /^(GRU|SCL|EZE|MVD|ASU|LPB|VVI)$/;
-    const destList = Object.keys(ports).filter(c => !SKIP_HNL.test(c));
-    if (destList.length) {
-      const { tiers: hTiers, palCut: hPal } = parseHeavyTiers(text);
-      const heavyDefs = hTiers.length ? hTiers : [{ key: '1:300+', min: 300, scut: 6 }];
-      const densityDef = buildDensityDef([...heavyDefs.map(d => ({ key: d.key, min: d.min })), { key: 'flat', flat: true }]);
-      const hDesc = heavyDefs.map(d => `1:${d.min}散-${d.scut}`).join('/');
-      let remark = `标托+4，重货${hDesc}`;
-      const hPalKeys = Object.keys(hPal);
-      if (hPalKeys.length) remark += `/${hPalKeys.map(k => `托-${hPal[k]}`).join('/')}`;
-      if (!/GW\s*[≥>]/.test(text)) remark += '；GW≥200kg可适用1:300比重价；GW≥300kg可适用所有比重价';
-      const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-      const toDP = (d) => { const o = {}; wAll.forEach(w => o[w] = d); return o; };
-      const rows = destList.map(c => {
-        const base = ports[c];
-        const densityPrices = { flat: toDP(base) };
-        const tDP = { flat: toDP(base + 4) };
-        heavyDefs.forEach(d => {
-          densityPrices[d.key] = toDP(base - d.scut);
-          const po = hPal[d.key] !== undefined ? hPal[d.key] : d.scut;
-          tDP[d.key] = toDP(base + 4 - po);
-        });
-        return { dest: c, densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', pp: true, remark, gwRule: { t300: 200, tAll: 300 } };
-      });
-      return { dest: destList.join('/'), date: dateH, ok: true, rows };
-    }
-  }
-
-  // ===== OCR目的港+价格格式（AA interline等）：GRU 67 EZE 65 UIO 61 =====
-  if (/\b[A-Z]{3}\s+\d+(?:\.\d+)?\b/.test(text) && !/裸运费|美国本土点|平散|托盘|散货|重托|重散|泡托|泡散|1:\d+\s*\/\s*\d+/.test(text) && !isUnified) {
-    const wAll = ['w45','w100','w300','w500','w1000'];
-    const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
-    const portRe = /\b([A-Z]{3})\s+(\d+(?:\.\d+)?)/g;
-    const rows = [], seen = {};
-    let pm;
-    while ((pm = portRe.exec(text))) {
-      if (seen[pm[1]]) continue; seen[pm[1]] = true;
-      const price = +pm[2];
-      rows.push({ dest: pm[1], densityDef: buildDensityDef([{key:'flat',flat:true}]), densityPrices: {flat: toDP(price)}, service: '散货', remark: '' });
-    }
-    if (rows.length >= 2) return { dest: rows.map(r=>r.dest).join('/'), date, ok: true, rows };
-  }
-
-  // ===== OCR比重档×重量档格式（LH等）：32 32 32 33 <1:80 / 平散货 35 35 35 36 =====
-  if (/(平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:)/.test(text) && /\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text) && !/托盘\s+\d|1:\d+\s+\d/.test(text) && !isUnified) {
-    const wAll = ['w45','w100','w300','w500','w1000'];
-    const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
-    // 清理OCR错误的比重标签（只做字符替换，不删内容）
-    const cleanLabel = (s) => s.replace(/《/g,'<').replace(/比/g,':').replace(/／/g,'/').replace(/：/g,':');
-    // 解析标签为比重档
-    const parseLabel = (label) => {
-      label = cleanLabel(label);
-      if (/平散货|平托/.test(label)) return { key:'flat', flat:true };
-      // 泡货档 <1:XXX（匹配2-3位数字，1205/5 → 120）
-      let m = label.match(/<\s*1?[:：比]?(\d{2,3})/);
-      if (m) return { key:'<1:'+m[1], max:+m[1] };
-      // 重货档 ≥1:XXX 或 1:XXX
-      m = label.match(/[≥>]?\s*1?[:：比]?(\d{2,4})/);
-      if (m && +m[1] >= 100) return { key:'1:'+m[1]+'+', min:+m[1] };
-      return null;
-    };
-    const lines = rawText.split(/\n/).map(l => l.trim()).filter(l => l);
-    const densityRows = [];
-    lines.forEach(line => {
-      // 跳过纯表头/备注行（KG只匹配表头的100KG/300KG等）
-      if (/DEST|100KG|300KG|500KG|1000KG|REMARK|有效期|航班|ETD|ETA|MUST GO|不分泡|生效日期|备注|二程|仅限|可议价|单议|转统配|PVG-|上海LH|航司|天天|D\d{4}|^\d{4}$/.test(line)) return;
-      const cells = line.split(/\s+/);
-      // 找比重标签位置
-      let labelIdx = -1;
-      for (let i=0;i<cells.length;i++) {
-        if (/平散货|平托|1[:：]\d+|比\d+|《1比|≥1:|＜1:|<1:/.test(cells[i])) { labelIdx = i; break; }
-      }
-      if (labelIdx < 0) return;
-      const labelInfo = parseLabel(cells[labelIdx]);
-      if (!labelInfo) return;
-      // 价格：标签前面或后面的连续数字
-      let prices = [];
-      for (let i=0;i<labelIdx;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
-      if (prices.length < 2) {
-        prices = [];
-        for (let i=labelIdx+1;i<cells.length;i++) { if (/^\d+(?:\.\d+)?$/.test(cells[i])) prices.push(+cells[i]); }
-      }
-      if (prices.length < 2) return;
-      // 4个价格对应 w100/w300/w500/w1000
-      const dp = {};
-      const wMap = ['w100','w300','w500','w1000'];
-      prices.forEach((p, i) => { if (wMap[i]) dp[wMap[i]] = p; });
-      dp.w45 = dp.w100;
-      densityRows.push({ ...labelInfo, dp });
-    });
-    if (densityRows.length >= 2) {
-      const densityDef = buildDensityDef(densityRows.map(d => d.flat ? {key:'flat',flat:true} : (d.max ? {key:d.key,max:d.max} : {key:d.key,min:d.min})));
-      const densityPrices = {};
-      densityRows.forEach(d => { densityPrices[d.key] = d.dp; });
-      // 目的港：提取3字母代码，支持 MUCIFRA → MUC/FRA
-      const DEPOT2 = ['PVG','SHA','HKG','PEK','CAN','SZX','TSN','CGO','TIT','REM','ETA','ETD','DEST','DES','EST','KG','上海','REMARK','ARK'];
-      // 先处理粘连的 MUCIFRA → MUC FRA（全局匹配所有6-7字母组合）
-      let destCodes = [];
-      const stickyMatches = rawText.match(/[A-Z]{6,7}/g) || [];
-      stickyMatches.forEach(s => {
-        if (s.length === 6) {
-          const c1 = s.slice(0,3), c2 = s.slice(3,6);
-          if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) {
-            destCodes.push(c1, c2);
-          }
-        } else if (s.length === 7) {
-          // MUCIFRA → MUC + FRA（中间I是分隔符误识别）
-          const c1 = s.slice(0,3), c2 = s.slice(4,7);
-          if (!DEPOT2.includes(c1) && !DEPOT2.includes(c2) && !destCodes.includes(c1)) {
-            destCodes.push(c1, c2);
-          }
-        }
-      });
-      // 再匹配独立的3字母代码（用单词边界）
-      const standalone = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !DEPOT2.includes(c) && !destCodes.includes(c));
-      const allCodes2 = [...destCodes, ...standalone];
-      const destList = allCodes2.length ? allCodes2.slice(0, 3) : ['未知']; // 最多3个目的港
-      const rows = destList.map(d => ({ dest: d, densityDef, densityPrices, service: '散货', remark: '' }));
-      return { dest: destList.join('/'), date, ok: true, rows };
-    }
-  }
-
-  // ===== 散货/托盘并列格式（JL-YVR等）：散48 托盘53 卡车+1 =====
-  if (/(^|\s)散\s*\d+(?:\.\d+)?/.test(text) && /托盘\s*\d+(?:\.\d+)?/.test(text) && !/美国本土点|裸运费|平散货|泡散|重散|重托|泡托/.test(text) && !isUnified) {
-    // 重量档：45KG 单议不自动填价，仅填 100/300/500/1000 四档
-    const wKeys = ['w100','w300','w500','w1000'];
-    // 提取散货价（取第一个）、托盘价、卡车加价
-    const looseM = text.match(/(^|\s)散\s*(\d+(?:\.\d+)?)/);
-    const palM = text.match(/托盘\s*(\d+(?:\.\d+)?)/);
-    const truckM = text.match(/卡车\s*\+?\s*(\d+(?:\.\d+)?)/);
-    if (looseM && palM) {
-      const looseV = +looseM[2], palV = +palM[1];
-      const dp = {};
-      wKeys.forEach(w => dp[w] = looseV);
-      const densityDef = buildDensityDef([{key:'flat',flat:true}]);
-      const densityPrices = { flat: dp };
-      const palDiff = palV - looseV;
-      const truckFee = truckM ? +truckM[1] : null;
-      // 目的港：从标题提取（JL-YVR → YVR）
-      let dest = '未知';
-      const titleM = rawText.match(/[A-Z]{2}\s*[-–—]\s*([A-Z]{3})/);
-      if (titleM) dest = titleM[1];
-      else {
-        const codes = (rawText.match(/\b[A-Z]{3}\b/g) || []).filter(c => !['PVG','SHA','HKG','ETD','ETA'].includes(c));
-        if (codes.length) dest = codes[0];
-      }
-      const remarkParts = [];
-      if (palDiff > 0) remarkParts.push(`托盘+${palDiff}`);
-      if (truckFee != null) remarkParts.push(`卡车+${truckFee}`);
-      const row = { dest, densityDef, densityPrices, service: '散货', remark: remarkParts.join('；'), palDiff: palDiff > 0 ? palDiff : 0, truckFee };
-      return { dest, date, ok: true, rows: [row] };
-    }
-  }
-
-  // ===== 多港并列 + 共用比重阶梯（南美：GRU 1:300/500/800 50/48/46 平货 52；可含共享泡货段 1:140/120/100/80/60 48/46/44/40/38） =====
-  if (/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text) && !isUnified) {
-    const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-    const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
-    const portRe = /\b([A-Z]{3})\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(?:平货|平散|平)?\s*[:：]?\s*(\d+(?:\.\d+)?)?/g;
-    const rows = [], seen = {};
-    let pm;
-    while ((pm = portRe.exec(text))) {
-      if (seen[pm[1]]) continue; seen[pm[1]] = true;
-      const flatV = pm[5] ? +pm[5] : +pm[2];
-      rows.push({ c: pm[1], m300: +pm[2], m500: +pm[3], m800: +pm[4], flatV });
-    }
-    // 共享泡货段（如 1:140/120/100/80/60     48/46/44/40/38）
-    const bub = {}, bubRe = /1:(\d+)\/(\d+)\/(\d+)\/(\d+)\/(\d+)\s+(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)/;
-    const bm = text.match(bubRe);
-    if (bm) [bm[1], bm[2], bm[3], bm[4], bm[5]].forEach((k, i) => bub[+k] = +bm[6 + i]);
-    const bubOnly = /仅限\s*([A-Z]{3}(?:\s*\/\s*[A-Z]{3})*)/i.exec(text);
-    const bubCodes = bubOnly ? bubOnly[1].split(/\s*\/\s*/) : [];
-    const hk = Object.keys(bub).map(Number).sort((a, b) => b - a);
-    const bubAvail = bubCodes.length ? `泡货100K起以上仅限${bubCodes.join('/')}` : '';
-    let heavyCode = '';
-    {
-      const hi = text.indexOf('重货超低价');
-      if (hi >= 0) {
-        const before = text.slice(Math.max(0, hi - 120), hi);
-        const mm = /([A-Z]{3})[^A-Z]*$/.exec(before);
-        if (mm) heavyCode = mm[1];
-      }
-    }
-    const out = rows.map(r => {
-      const parts = [{ key: '1:300+', min: 300 }, { key: '1:500+', min: 500 }, { key: '1:800+', min: 800 }, { key: 'flat', flat: true }];
-      const densityPrices = { '1:300+': toDP(r.m300), '1:500+': toDP(r.m500), '1:800+': toDP(r.m800), flat: toDP(r.flatV) };
-      const remarks = [];
-      let bulkMinGw = 0;
-      if (bubCodes.includes(r.c) && hk.length) {
-        hk.forEach(k => { parts.unshift({ key: '<1:' + k, max: k }); densityPrices['<1:' + k] = toDP(bub[k]); });
-        remarks.push(bubAvail);
-        bulkMinGw = 100;
-      }
-      if (heavyCode === r.c) remarks.push('重货超低价');
-      return { dest: r.c, densityDef: buildDensityDef(parts), densityPrices, service: '散货', remark: remarks.join('；'), bulkMinGw };
-    });
-    if (out.length) return { dest: out.map(r => r.dest).join('/'), date, ok: true, rows: out };
-  }
-
+function parseUnifiedMain(text, rawText, ctx) {
+  const dest = ctx.dest; const date = ctx.date; const smallRuleParsed = ctx.smallRuleParsed;
   // 动态切分服务段：匹配 "X-Y天服务" / "X-Y统配价格" / "X-Y服务" 等标签
   const segRe = /(\d+)\s*-\s*(\d+)\s*(?:天)?\s*(?:统配价格|服务|统配|价格)?/gi;
   let segs = [];
@@ -5517,9 +5574,11 @@ function detectRateMeta(text) {
   if (/传盛/.test(t)) m.airline = '传盛';
   else if (/5Y\s*\/\s*CA|5Y\/CA/.test(t)) m.airline = '5Y/CA';
   else if (/MU\s*\/\s*HO|MU\/HO/.test(t)) m.airline = 'MU/HO';
-  else if (/^AA\s*[:：]|AA经HNL|AA：|AA：/.test(t)) m.airline = 'AA';
+  else if (/^AA\s*[:：]|AA经HNL|AA：/.test(t)) m.airline = 'AA';
   else if (/^DL\b|DL裸运费|DL：/.test(t)) m.airline = 'DL';
   else if (/LH\b|上海LH|汉莎/.test(t)) m.airline = 'LH';
+  // 南美统配（GRU/LIM/SCL/UIO/BOG/EZE 等共享比重阶梯）→ 统配性质
+  else if (/(^|\s)(GRU|LIM|SCL|UIO|BOG|EZE|VCP|MAO|CWB)\s+1:\d+/.test(t) && /南美/.test(t)) m.airline = '南美统配';
   // 注意：不能凭 PVG-FRA / MUC 字样就判 LH——FRA/MUC 统配文字版属于其他航司，LH 上海只有图片版表价
   // 中转点/备注（聚焦 AA/DL：经HNL / 经HND / 直飞DFW）
   if (m.airline === 'AA' && /美国本土点|DFW\+1段|标托/.test(t) && !/经HND|AA128|直飞DFW/.test(t)) m.transit = '经HNL';
@@ -5540,10 +5599,42 @@ function detectAirlineFromExcel(fileName, workbook) {
   if (/\bAA\b/.test(hay) || /AA128|上海AA/.test(hay)) return 'AA';
   return '';
 }
+
+// ---------- 策略模式：文字表价 parser 注册表 ----------
+// 每个 entry: { key, label, detect(text), parse(text) }
+// 新增航司文字版时只需在此 push 一项，主流程自动识别
+const TEXT_RATE_PARSERS = [
+  {
+    key: 'unified',
+    label: '统配表价（托盘/散货）',
+    detect: t => /托盘|散货|重托|重散|泡托|泡散/.test(t) && /1:\s*\d+|平散|1比80/.test(t),
+    parse: t => parseUnifiedRateText(t),
+  },
+  {
+    key: 'uc_update',
+    label: 'UC 手写版更新',
+    detect: t => /MIA|GRU|SCL|UC/i.test(t) && /枢纽|hubs|调整/i.test(t),
+    parse: t => parseUCTextUpdate(t),
+  },
+];
+// 自动识别：按 detect 优先级返回第一个命中的 parser；都不中返回 null
+function autoParseTextRate(text) {
+  for (const p of TEXT_RATE_PARSERS) {
+    try { if (p.detect(text || '')) return Object.assign({ parserKey: p.key }, p.parse(text)); }
+    catch (e) { /* 该 parser 解析失败，试下一个 */ }
+  }
+  return null;
+}
 $('btnParsePasted').addEventListener('click', () => {
   try {
     const text = $('pastedRate').value.trim();
     if (!text) { toast('请先粘贴表价文字'); return; }
+    // 策略路由：autoPick 到非统配 parser 时提示用户走对应按钮；命中统配或都不中走原流程
+    const picked = TEXT_RATE_PARSERS.find(p => { try { return p.detect(text); } catch(e){ return false; } });
+    if (picked && picked.key !== 'unified') {
+      toast(`识别到「${picked.label}」类型，请点对应按钮（${picked.key === 'uc_update' ? 'UC手写版更新' : picked.label}）`);
+      return;
+    }
     const res = parseUnifiedRateText(text);
     if (!res.dest || !res.ok || !res.rows.length) { toast('未能识别为统配表价（需含 托盘/散货 + 重托/重散/泡托/泡散），请用Excel导入或手动录入'); return; }
     // 行转工具结构：_densityDef 提升到表级供匹配
@@ -5648,7 +5739,8 @@ $('btnUCTextUpdate').addEventListener('click', () => {
         date: update.date,
         rows: rows,
         ucUpdated: true,  // 标记为UC手写版更新表价
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        updatedAt: Date.now()
       };
       if (rowWithDef) sheet.densityDef = rowWithDef.densityDef;
       return sheet;
@@ -5682,33 +5774,24 @@ function openRateDetail(id) {
     x.expired === true &&
     (x.date || '') < (s.date || '')
   ).sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
-  // prevMap[dest][densityKey][weightKey] = 上一版价格
+  // prevMap[dest][densityKey] = 上一版主row(散货)价格
+  // prevVariantMap[label][dest][densityKey] = 上一版 variant(某服务段托盘/散货)价格
   const prevMap = {};
+  const prevVariantMap = {};
   if (prev && prev.rows) {
     prev.rows.forEach(r => {
       prevMap[r.dest] = prevMap[r.dest] || {};
       const dp = r.densityPrices || {};
-      Object.keys(dp).forEach(dk => {
-        prevMap[r.dest][dk] = dp[dk];
-      });
-    });
-  }
-  // 汇总涨/跌/持平/新增
-  let diffSummary = null;
-  if (prev) {
-    let up = 0, down = 0, same = 0, added = 0;
-    (s.rows || []).forEach(r => {
-      const dp = r.densityPrices || {};
-      Object.keys(dp).forEach(dk => {
-        Object.keys(dp[dk]).forEach(wk => {
-          const oldP = prevMap[r.dest] && prevMap[r.dest][dk] ? prevMap[r.dest][dk][wk] : undefined;
-          if (oldP === undefined) { added++; return; }
-          const d = dp[dk][wk] - oldP;
-          if (d > 0) up++; else if (d < 0) down++; else same++;
+      Object.keys(dp).forEach(dk => { prevMap[r.dest][dk] = dp[dk]; });
+      if (r.variants) {
+        Object.keys(r.variants).forEach(label => {
+          prevVariantMap[label] = prevVariantMap[label] || {};
+          prevVariantMap[label][r.dest] = prevVariantMap[label][r.dest] || {};
+          const vdp = (r.variants[label] && r.variants[label].densityPrices) || {};
+          Object.keys(vdp).forEach(dk => { prevVariantMap[label][r.dest][dk] = vdp[dk]; });
         });
-      });
+      }
     });
-    diffSummary = `对比上一版（${prev.airline} ${prev.date}）：涨 <b style="color:var(--red)">${up}</b> 档 · 跌 <b style="color:var(--green)">${down}</b> 档 · 持平 ${same} 档${added ? ` · 新增 ${added} 档` : ''}`;
   }
   $('modalTitle').textContent = `${s.airline} 表价 ${s.date}${adj!==0?`（限时调价 ${adj>0?'+':''}${adj} 已叠加）`:''}`;
   let html = '';
@@ -5717,8 +5800,8 @@ function openRateDetail(id) {
       限时调价已生效：<b>${adj>0?'+':''}${adj} 元/kg</b>
     </div>`;
   }
-  if (diffSummary) {
-    html += `<div style="background:var(--bg-soft,#f5f7fa);padding:8px 14px;border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--text-2)">${diffSummary}</div>`;
+  if (prev) {
+    html += `<div style="background:var(--bg-soft,#f5f7fa);padding:8px 14px;border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--text-2)">与上一版（${prev.airline} ${prev.date}）对比：涨跌已标注</div>`;
   }
   if (s.image) {
     html += `<div style="margin-bottom:12px"><img src="${s.image}" style="max-width:100%;border:1px solid var(--border);border-radius:6px"></div>`;
@@ -5745,15 +5828,33 @@ function openRateDetail(id) {
         }).sort((a, b) => a.ord !== b.ord ? a.ord - b.ord : a.v - b.v).map(o => o.k);
         const variantOf = (lb, dk) => {
           const v = r.variants && r.variants[lb] && r.variants[lb].densityPrices && r.variants[lb].densityPrices[dk];
-          return v !== undefined ? v.w100 + adj : null;
+          if (v === undefined || v.w100 === undefined) return null;
+          let html = '¥' + (v.w100 + adj);
+          const oldP = prevVariantMap[lb] && prevVariantMap[lb][r.dest] && prevVariantMap[lb][r.dest][dk];
+          if (oldP && oldP.w100 !== undefined) {
+            const d = v.w100 - oldP.w100;
+            if (d > 0) html += ` <small style="color:var(--red);font-weight:600">↑${d}</small>`;
+            else if (d < 0) html += ` <small style="color:var(--green);font-weight:600">↓${-d}</small>`;
+          }
+          return html;
         };
         dOrder.forEach(dk => {
           const main = r.densityPrices[dk];
+          let mainHtml = '-';
+          if (main && main.w100 !== undefined) {
+            mainHtml = '¥' + (main.w100 + adj);
+            const oldP = prevMap[r.dest] && prevMap[r.dest][dk];
+            if (oldP && oldP.w100 !== undefined) {
+              const d = main.w100 - oldP.w100;
+              if (d > 0) mainHtml += ` <small style="color:var(--red);font-weight:600">↑${d}</small>`;
+              else if (d < 0) mainHtml += ` <small style="color:var(--green);font-weight:600">↓${-d}</small>`;
+            }
+          }
           let rh = `<tr><td><b>${r.dest}</b></td><td>${DENSITY_LABEL[dk]||dk}</td>` +
-            `<td style="font-weight:600">${main ? '¥'+(main.w100 + adj) : '-'}</td>`;
+            `<td style="font-weight:600">${mainHtml}</td>`;
           vKeys.forEach(lb => {
             const v = variantOf(lb, dk);
-            rh += `<td>${v !== null ? '¥'+v : '-'}</td>`;
+            rh += `<td>${v !== null ? v : '-'}</td>`;
           });
           rh += '</tr>';
           html += rh;
@@ -5855,7 +5956,16 @@ function ccRefresh() {
     $('ccTotalUsd').textContent = (costW * targetUsd).toFixed(2);
   }
 }
-['ccVolume','ccGW','ccRate','ccRmb','ccTargetUsd'].forEach(id => $(id).addEventListener('input', ccRefresh));
+['ccVolume','ccGW','ccRate'].forEach(id => $(id).addEventListener('input', ccRefresh));
+// 正算（RMB 成本）与反算（USD 目标售价）互斥：输入一个自动清空另一个
+$('ccRmb').addEventListener('input', () => {
+  if ($('ccRmb').value) { $('ccTargetUsd').value = ''; $('ccTargetRmb').textContent = '-'; }
+  ccRefresh();
+});
+$('ccTargetUsd').addEventListener('input', () => {
+  if ($('ccTargetUsd').value) { $('ccRmb').value = ''; }
+  ccRefresh();
+});
 document.querySelectorAll('input[name=ccBilling]').forEach(r => r.addEventListener('change', () => {
   const v = parseFloat(document.querySelector('input[name=ccBilling]:checked').value);
   $('ccBubbleGroup').style.opacity = (v === 0.005 || v === 0.001) ? 0.4 : 1;
@@ -5921,8 +6031,6 @@ $('btnSaveSync').addEventListener('click', () => {
 function mergeById(localArr, cloudArr) {
   const map = new Map();
   (cloudArr || []).forEach(x => { if (x && x.id) map.set(x.id, x); });
-  let cloudMaxTime = 0;
-  (cloudArr || []).forEach(x => { if (x && typeof x.updatedAt === 'number' && x.updatedAt > cloudMaxTime) cloudMaxTime = x.updatedAt; });
   (localArr || []).forEach(x => {
     if (!x || !x.id) return;
     if (typeof x.updatedAt !== 'number') x.updatedAt = 1;
@@ -5931,8 +6039,8 @@ function mergeById(localArr, cloudArr) {
       if (typeof exist.updatedAt !== 'number') exist.updatedAt = 1;
       if (x.updatedAt > exist.updatedAt) map.set(x.id, x);
     } else {
-      // CF 没有、本地有：比 CF 最新时间还新→本地新增/新删，保留墓碑；否则视为已被远端清掉，不保留
-      if (x.updatedAt > cloudMaxTime) map.set(x.id, x);
+      // 云端没有、本地有：直接保留（删除均已通过 tombstone 同步，不会复活）
+      map.set(x.id, x);
     }
   });
   return Array.from(map.values());
