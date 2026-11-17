@@ -422,6 +422,37 @@
       min-width: 120px;
     }
   }
+  /* 已过期表价归档：与有效表价分开，按航司分组 */
+  .expired-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .expired-toggle b { color: var(--red); font-weight: 600; }
+  .expired-toggle:hover { background: var(--bg); }
+  .expired-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  .expired-group-head b { color: var(--text); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -585,6 +616,13 @@
       <tbody id="rateListBody"></tbody>
     </table>
     <div class="empty" id="rateListEmpty">还没有导入表价</div>
+    <div id="expiredRateBox" style="display:none">
+      <button type="button" id="expiredRateToggle" class="expired-toggle">
+        <span>已过期表价 <b id="expiredRateCount">0</b> 张（按航司归档）</span>
+        <span id="expiredRateArrow">展开</span>
+      </button>
+      <div id="expiredRateGroups" style="display:none"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -734,10 +772,11 @@
       输入用户名和密码，数据自动同步到云端。不填就纯本地存储。
     </p>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <input id="syncWorkerUrl" placeholder="后端地址（留空用默认）" style="font-size:12px;padding:5px 8px;flex:1 1 200px;min-width:150px">
       <input id="syncUsername" placeholder="用户名" style="font-size:12px;padding:5px 8px;width:96px;text-transform:lowercase">
       <input id="syncPassword" type="password" placeholder="密码" style="font-size:12px;padding:5px 8px;width:96px">
       <button class="btn btn-primary btn-sm" id="btnSaveSync" style="padding:5px 12px">登录</button>
-      <button class="btn btn-ghost btn-sm" id="btnCloudSync" style="padding:5px 12px">Cloudflare同步</button>
+      <button class="btn btn-ghost btn-sm" id="btnCloudSync" style="padding:5px 12px">云端同步</button>
     </div>
     <div id="syncStatus" style="margin-top:6px;font-size:12px;color:var(--text-3)">已登录：<b>zod</b></div>
   </div>
@@ -816,11 +855,13 @@ const VOLUMETRIC_RATE = 167; // 1 CBM = 167 kg
 
 // ---------- 云同步配置 ----------
 const SYNC_KEY = 'af_sync_config';
-const DEFAULT_WORKER_URL = 'https://tools.xch04028-de6.workers.dev';
+// 自定义域：国内可直连（原 workers.dev 在大陆被阻断）
+const DEFAULT_WORKER_URL = 'https://tool-api.x-zod.online';
 function getSyncConfig() {
   try {
     const cfg = JSON.parse(localStorage.getItem(SYNC_KEY)) || {};
-    if (!cfg.workerUrl) cfg.workerUrl = DEFAULT_WORKER_URL;
+    // 旧 workers.dev 地址在国内已被阻断，自动迁移到自定义域
+    if (!cfg.workerUrl || /\.workers\.dev(\/|$)/.test(cfg.workerUrl)) cfg.workerUrl = DEFAULT_WORKER_URL;
     return cfg;
   } catch(e) { return { workerUrl: DEFAULT_WORKER_URL }; }
 }
@@ -3638,23 +3679,29 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         newRow.prices.w100 = defaultW100;
         // 比重档
         const dp = {};
-        // 规则写成「各档 ±N」（adj.all）时，按行内已有档位逐档加减
-        if (adj.all !== undefined && !Object.keys(adj).some(k => k.startsWith('d'))) {
-          Object.keys(r.densityPrices || {}).forEach(k => {
-            const v = r.densityPrices[k];
-            if (k.startsWith('d') && v && v.w100 !== undefined) dp[k] = { w100: v.w100 + adj.all };
-          });
+        // 手写版只给「各档加/减/不变」，档本身相对开口价的固有档差必须取自枢纽行
+        // （否则所有档会被算成等于开口价，1:300 就会高于枢纽 1:300 十来个点）
+        const hubEntry = hubs[meta.baseGW + '-' + transferHub];
+        const hubPrices = (hubEntry && hubEntry.prices) ? hubEntry.prices : null;
+        const hubDelta = (k) => {
+          if (!hubPrices || hubPrices[k] === undefined || hubPrices.w100 === undefined) return 0;
+          return hubPrices[k] - hubPrices.w100;
+        };
+        // 需要输出的比重档集合：显式档优先；「各档 ±N」取枢纽档（再退行内档）
+        const dKeys = [];
+        Object.keys(adj).forEach(k => { if (k.startsWith('d') && dKeys.indexOf(k) < 0) dKeys.push(k); });
+        if (adj.all !== undefined && !dKeys.length) {
+          Object.keys(hubPrices || {}).forEach(k => { if (k.startsWith('d') && dKeys.indexOf(k) < 0) dKeys.push(k); });
+          if (!dKeys.length) Object.keys(r.densityPrices || {}).forEach(k => { if (k.startsWith('d') && dKeys.indexOf(k) < 0) dKeys.push(k); });
         }
-        Object.keys(adj).forEach(k => {
-          if (k.startsWith('d')) {
-            const dAdj = getAdj(k);
-            const normalD = normalBase + dAdj;
-            const swapD = swapBase !== null ? swapBase + dAdj : null;
-            let val;
-            if (isMIA && swapD !== null) val = swapD;
-            else val = swapD !== null ? Math.min(normalD, swapD) : normalD;
-            dp[k] = { w100: val };
-          }
+        dKeys.forEach(k => {
+          const dAdj = getAdj(k);
+          const normalD = normalBase + hubDelta(k) + dAdj;
+          const swapD = swapBase !== null ? swapBase + hubDelta(k) + dAdj : null;
+          let val;
+          if (isMIA && swapD !== null) val = swapD;
+          else val = swapD !== null ? Math.min(normalD, swapD) : normalD;
+          dp[k] = { w100: val };
         });
         if (Object.keys(dp).length) newRow.densityPrices = dp;
         // 备注：显示货机开口价和swap价
@@ -4262,69 +4309,109 @@ function classifyRate(s) {
   if (al.includes('统配') || al.includes('传盛')) return 'unified';
   return 'other';
 }
-function renderRateList() {
-  const all = loadRates();
-  const filtered = _rateCategory === 'all' ? all : all.filter(s => classifyRate(s) === _rateCategory);
-  const tbody = $('rateListBody');
-  $('rateListEmpty').style.display = filtered.length ? 'none' : 'block';
-  tbody.innerHTML = filtered.map(s => {
-    const adj = currentAdjFor(s.airline, s.transit);
-    const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
-    const today = todayStr();
-    const autoExpired = s.expiry && s.expiry < today;   // 到期日已过
-    const manuallyExpired = s.expired === true;         // 手动标记过期
-    const isExpired = autoExpired || manuallyExpired;
-    const expLabel = autoExpired
-      ? `<span class="tag tag-red">已到期 ${s.expiry}</span>`
-      : manuallyExpired
-        ? `<span class="tag tag-red">已过期(手动)</span>`
-        : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
-    // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"；四个按钮一行
-    let actBtns = `
+let _expiredOpen = false;
+function rateIsExpired(s) {
+  return s.expired === true || (s.expiry && s.expiry < todayStr());
+}
+function rateRowHtml(s, inArchive) {
+  const adj = currentAdjFor(s.airline, s.transit);
+  const adjTag = adj !== 0 ? `<span class="tag ${adj<0?'tag-green':'tag-orange'}">当前${adj>0?'+':''}${adj}</span>` : '';
+  const autoExpired = s.expiry && s.expiry < todayStr();   // 到期日已过
+  const manuallyExpired = s.expired === true;              // 手动标记过期
+  const isExpired = autoExpired || manuallyExpired;
+  const expLabel = autoExpired
+    ? `<span class="tag tag-red">已到期 ${s.expiry}</span>`
+    : manuallyExpired
+      ? `<span class="tag tag-red">已过期(手动)</span>`
+      : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
+  // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"；四个按钮一行
+  let actBtns = `
       <div class="rate-actions" style="display:flex;justify-content:flex-end;gap:6px;white-space:nowrap">
         <button class="btn btn-sm" data-id="${s.id}" data-act="view" style="flex:0 0 auto;white-space:nowrap;background:var(--primary-soft);color:var(--primary)">查看</button>
         <button class="btn btn-sm" data-id="${s.id}" data-act="adj" style="flex:0 0 auto;white-space:nowrap;background:var(--accent-soft);color:var(--accent)">调价</button>
         <button class="btn btn-sm" data-id="${s.id}" data-act="${isExpired?'restore':'expire'}" style="flex:0 0 auto;white-space:nowrap;${isExpired?'background:var(--green-soft);color:var(--green)':'background:var(--red-soft);color:var(--red)'}">${isExpired?'恢复':'过期'}</button>
         <button class="btn btn-sm" data-id="${s.id}" data-act="del" style="flex:0 0 auto;white-space:nowrap;background:var(--red);color:#fff">删除</button>
       </div>`;
-    return `
-    <tr style="${isExpired ? 'opacity:.55' : ''}">
-      <td data-label="航司"><b>${esc(s.airline)}</b>${s.transit?`<span style="display:block;font-size:11px;color:var(--accent)">${esc(s.transit)}</span>`:''} ${adjTag}${isExpired?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
+  return `
+    <tr style="${isExpired && !inArchive ? 'opacity:.55' : ''}">
+      <td data-label="航司"><b>${esc(s.airline)}</b>${s.transit?`<span style="display:block;font-size:11px;color:var(--accent)">${esc(s.transit)}</span>`:''} ${adjTag}${isExpired&&!inArchive?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
       <td data-label="生效日">${s.date}</td>
       <td data-label="到期日">${expLabel}</td>
       <td data-label="操作">${actBtns}</td>
     </tr>`;
-  }).join('');
-  if (!tbody.__delegated) {
-    tbody.__delegated = true;
-    tbody.addEventListener('click', (e) => {
-      const b = e.target.closest('button[data-act]');
-      if (!b) return;
-      const id = b.dataset.id, act = b.dataset.act;
-      if (act === 'view') { openRateDetail(id); return; }
-      if (act === 'adj') {
-        const s = loadRates().find(x => x.id === id); if (!s) return;
-        $('adjAirline').value = s.airline;
-        $('adjTransit').value = s.transit || '';
-        renderAdjList(); $('adjModalMask').classList.add('show'); return;
-      }
-      if (act === 'del') {
-        if (!confirm('删除这张牌价表？')) return;
-        tombstoneRate(id); renderRateList(); return;
-      }
-      if (act === 'expire') {
-        const s = loadRates().find(x => x.id === id); if (!s) return;
-        if (!confirm(`确认将 ${s.airline} ${s.date} 这张表价标记为过期？\n过期后不再参与询价匹配。`)) return;
-        const t = loadRates().find(x => x.id === id); if (!t) return;
-        t.expired = true; saveRates(loadRates()); renderRateList(); toast('已将该表价标记为过期，不再参与匹配'); return;
-      }
-      if (act === 'restore') {
-        const s = loadRates().find(x => x.id === id); if (!s) return;
-        delete s.expired; saveRates(loadRates()); renderRateList(); toast('已恢复该表价参与匹配'); return;
-      }
-    });
+}
+function rateActionsHandler(e) {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.dataset.id, act = b.dataset.act;
+  if (act === 'view') { openRateDetail(id); return; }
+  if (act === 'adj') {
+    const s = loadRates().find(x => x.id === id); if (!s) return;
+    $('adjAirline').value = s.airline;
+    $('adjTransit').value = s.transit || '';
+    renderAdjList(); $('adjModalMask').classList.add('show'); return;
+  }
+  if (act === 'del') {
+    if (!confirm('删除这张牌价表？')) return;
+    tombstoneRate(id); renderRateList(); return;
+  }
+  if (act === 'expire') {
+    const s = loadRates().find(x => x.id === id); if (!s) return;
+    if (!confirm(`确认将 ${s.airline} ${s.date} 这张表价标记为过期？\n过期后不再参与询价匹配。`)) return;
+    const t = loadRates().find(x => x.id === id); if (!t) return;
+    t.expired = true; saveRates(loadRates()); renderRateList(); toast('已将该表价标记为过期，不再参与匹配'); return;
+  }
+  if (act === 'restore') {
+    const s = loadRates().find(x => x.id === id); if (!s) return;
+    delete s.expired; saveRates(loadRates()); renderRateList(); toast('已恢复该表价参与匹配'); return;
   }
 }
+function renderExpiredArchive(expired) {
+  const box = $('expiredRateBox'), groups = $('expiredRateGroups');
+  if (!expired.length) { box.style.display = 'none'; groups.innerHTML = ''; return; }
+  box.style.display = 'block';
+  $('expiredRateCount').textContent = expired.length;
+  const byAirline = {};
+  expired.forEach(s => {
+    const k = (s.airline || '未填航司').toUpperCase();
+    (byAirline[k] = byAirline[k] || []).push(s);
+  });
+  groups.innerHTML = Object.keys(byAirline).sort().map(k => {
+    const list = byAirline[k].slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    const latest = list[0].date ? ` · 最新 ${esc(list[0].date)}` : '';
+    return `<div class="expired-group">
+      <div class="expired-group-head"><b>${esc(k)}</b><span>${list.length} 张${latest}</span></div>
+      <table class="mobile-cards"><tbody>${list.map(s => rateRowHtml(s, true)).join('')}</tbody></table>
+    </div>`;
+  }).join('');
+  groups.style.display = _expiredOpen ? 'block' : 'none';
+  $('expiredRateArrow').textContent = _expiredOpen ? '收起' : '展开';
+  if (!groups.__delegated) { groups.__delegated = true; groups.addEventListener('click', rateActionsHandler); }
+}
+function renderRateList() {
+  const all = loadRates();
+  const filtered = _rateCategory === 'all' ? all : all.filter(s => classifyRate(s) === _rateCategory);
+  const active = filtered.filter(s => !rateIsExpired(s));
+  const expired = filtered.filter(rateIsExpired);
+  const tbody = $('rateListBody');
+  const emptyEl = $('rateListEmpty');
+  tbody.innerHTML = active.map(s => rateRowHtml(s, false)).join('');
+  if (active.length) {
+    emptyEl.style.display = 'none';
+  } else {
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = expired.length ? `暂无有效表价，已过期 ${expired.length} 张在下方归档` : '还没有导入表价';
+  }
+  renderExpiredArchive(expired);
+  if (!tbody.__delegated) { tbody.__delegated = true; tbody.addEventListener('click', rateActionsHandler); }
+}
+
+// 已过期表价归档：展开 / 收起
+$('expiredRateToggle').addEventListener('click', () => {
+  _expiredOpen = !_expiredOpen;
+  const cur = loadRates().filter(s => (_rateCategory === 'all' || classifyRate(s) === _rateCategory) && rateIsExpired(s));
+  renderExpiredArchive(cur);
+});
 
 // 表价分类标签切换
 document.querySelectorAll('.rate-cat-tab').forEach(btn => {
@@ -5656,23 +5743,31 @@ $('ccCalcVol').addEventListener('click', () => {
 // ---------- 云同步设置 ----------
 (function initSync() {
   const cfg = getSyncConfig();
+  $('syncWorkerUrl').value = cfg.workerUrl || DEFAULT_WORKER_URL;
   $('syncUsername').value = cfg.username || '';
   $('syncPassword').value = cfg.password || '';
   updateSyncStatus();
 })();
 
+function _escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function updateSyncStatus() {
   const cfg = getSyncConfig();
+  const host = (cfg.workerUrl || '').replace(/^https?:\/\//, '');
   $('syncStatus').innerHTML = cfg.username && cfg.password
-    ? '已登录：<b>' + cfg.username + '</b>'
-    : '未登录：当前纯本地存储';
+    ? '已登录：<b>' + _escHtml(cfg.username) + '</b> · 后端：' + _escHtml(host)
+    : '未登录：当前纯本地存储 · 后端：' + _escHtml(host);
 }
 
 $('btnSaveSync').addEventListener('click', () => {
   const uname = $('syncUsername').value.trim().toLowerCase();
   const pwd = $('syncPassword').value.trim();
   const cfg = getSyncConfig();
-  cfg.workerUrl = DEFAULT_WORKER_URL;
+  const url = ($('syncWorkerUrl').value || '').trim().replace(/\/+$/, '');
+  cfg.workerUrl = url || DEFAULT_WORKER_URL;
   cfg.username = uname;
   cfg.password = pwd;
   localStorage.setItem(SYNC_KEY, JSON.stringify(cfg));
@@ -5700,7 +5795,7 @@ function mergeById(localArr, cloudArr) {
 }
 
 $('btnCloudSync').addEventListener('click', async () => {
-  toast('正在 Cloudflare 双向同步...');
+  toast('正在云端双向同步...');
   const [inq, rates, adjs] = await Promise.all([
     syncFromCloud('/api/inquiries'),
     syncFromCloud('/api/rates'),
@@ -5730,7 +5825,7 @@ $('btnCloudSync').addEventListener('click', async () => {
   if (pullFail.length || pushFail.length) {
     toast('同步未完全成功：拉取失败[' + (pullFail.join('、') || '无') + '] 推送失败[' + (pushFail.join('、') || '无') + ']');
   } else {
-    toast('Cloudflare 双向同步完成：本机与云端均为最新完整数据');
+    toast('云端双向同步完成：本机与云端均为最新完整数据');
   }
 });
 
