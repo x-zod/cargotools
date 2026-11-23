@@ -6141,22 +6141,16 @@ async function cloudSyncAll(silent) {
 }
 $('btnCloudSync').addEventListener('click', () => cloudSyncAll(false));
 
-// 顶部刷新：已登录云端时先做一次双向同步（手机端/PWA 点一下就是最新表价），未登录或同步失败才整页重载
-window.doReload = function () { location.reload(); };
-$('btnRefresh').addEventListener('click', async () => {
+// 顶部刷新：强制刷新整页（带时间戳绕过浏览器/PWA 缓存），页面加载后会自动静默拉取云端最新数据
+function refreshUrl() {
+  const sep = location.search ? '&' : '?';
+  return location.pathname + location.search + sep + '_r=' + Date.now();
+}
+$('btnRefresh').addEventListener('click', () => {
   const btn = $('btnRefresh');
-  if (btn.dataset.busy) return;
-  const cfg = getSyncConfig();
-  const cloudReady = $('syncBackend').value !== 'local' && cfg.username && cfg.password;
-  if (!cloudReady) { window.doReload(); return; }
-  btn.dataset.busy = '1';
-  btn.classList.add('is-syncing');
-  let okSync = false;
-  try { okSync = (await cloudSyncAll(false)) !== false; } catch (e) { okSync = false; }
-  btn.classList.remove('is-syncing');
-  if (btn) delete btn.dataset.busy;
-  // 同步失败才重载；若是别处同步正在进行（返回 false 但锁未释放），保持当前页不打断
-  if (!okSync && !_syncInFlight) window.doReload();
+  if (btn && btn.dataset.busy) return;
+  if (btn) { btn.dataset.busy = '1'; btn.classList.add('is-syncing'); }
+  setTimeout(() => { location.replace(refreshUrl()); }, 150);
 });
 
 // ---------- 数据保留策略（默认不清理；可选保留 1 年 / 2 年）----------
@@ -6249,11 +6243,11 @@ $('quickDest').addEventListener('keydown', e => {
 (function autoPullOnce() {
   const cfg = getSyncConfig();
   if (cfg.mode === 'local' || !cfg.workerUrl || !cfg.username || !cfg.password) return;
-  setTimeout(() => { cloudSyncAll(true); }, 900);
+  setTimeout(() => { cloudSyncAll(true); }, 250);
 })();
 
 // 拉取之后再跑保留期清理（放在后面，避免刚同步下来的历史数据被立刻删掉）
-setTimeout(() => { try { runRetention(false); } catch (e) { console.log('自动清理失败:', e); } }, 1600);
+setTimeout(() => { try { runRetention(false); } catch (e) { console.log('自动清理失败:', e); } }, 1000);
 
 // 切回前台（手机端/微信内置浏览器常挂在后台）超过 2 分钟，静默拉一次，避免看到过期数据
 document.addEventListener('visibilitychange', () => {
