@@ -293,8 +293,10 @@
     flex-wrap: wrap;
   }
   .calc-box b { font-size: 15px; }
-  .option-group { display:flex; flex-wrap:wrap; gap:8px; }
-  .option-group label { display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:#fff; font-size:13px; }
+  .option-group { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+  .option-group.opt-5 { grid-template-columns:repeat(5, minmax(0,1fr)); }
+  .option-group label { display:flex; align-items:center; justify-content:center; gap:6px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:#fff; font-size:13px; min-width:0; }
+  .option-group label span { white-space:nowrap; }
   .option-group input[type=radio] { width:auto; margin:0; }
   .result { background:var(--primary-soft); color:var(--primary); font-weight:600; }
   .dim-row { display:flex; gap:6px; align-items:center; margin:6px 0; flex-wrap:wrap; }
@@ -443,6 +445,9 @@
     .price-edit .price-input { width: auto; min-width: 0; box-sizing: border-box; }
     /* 日期框：去掉原生外观差，与文本框同高同宽，日历图标保留 */
     input[type=date] { -webkit-appearance: none; appearance: none; min-height: 0; height: 41px; box-sizing: border-box; }
+    /* 成本计算选项框：手机端两列/三列等宽，大小统一 */
+    .option-group { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .option-group.opt-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     /* --- 成本计算：table 转纵向，label 在上、输入在下 --- */
     .cc-table, .cc-table tbody, .cc-table tr { display: block; }
     .cc-table colgroup { display: none; }
@@ -828,7 +833,7 @@
 
   <div class="card">
     <div class="card-title">分泡比例</div>
-    <div class="option-group" id="ccBubbleGroup">
+    <div class="option-group opt-5" id="ccBubbleGroup">
       <label><input type="radio" name="ccBubble" value="0" checked=""><span>不分泡</span></label>
       <label><input type="radio" name="ccBubble" value="0.5"><span>55分</span></label>
       <label><input type="radio" name="ccBubble" value="0.4"><span>46分</span></label>
