@@ -4579,6 +4579,9 @@ function classifyRate(s) {
   if (/^LH/.test(al) || al.includes('汉莎')) return 'lh';
   if (/^UC/.test(al) || al.includes('LATAM') || al.includes('智利')) return 'uc';
   if (al.includes('统配') || al.includes('传盛')) return 'unified';
+  // 兜底：托盘 / 散货成对的文字表本质都是统配（统配解析器会把 remark 写成"XX 统配"）
+  const rows = s.rows || [];
+  if (rows.some(r => r && /统配/.test(r.remark || ''))) return 'unified';
   return 'other';
 }
 let _expiredOpen = false;
@@ -5659,7 +5662,7 @@ function detectRateMeta(text) {
   if (/传盛/.test(t)) m.airline = '传盛';
   else if (/5Y\s*\/\s*CA|5Y\/CA/.test(t)) m.airline = '5Y/CA';
   else if (/MU\s*\/\s*HO|MU\/HO/.test(t)) m.airline = 'MU/HO';
-  else if (/东航|东方航空/.test(t)) m.airline = 'MU';
+  else if (/东航|东方航空/.test(t)) m.airline = (/DFW/.test(t) && /托盘|散货/.test(t)) ? 'DFW统配' : 'MU';
   else if (/^AA\s*[:：]|AA经HNL|AA：/.test(t)) m.airline = 'AA';
   else if (/^DL\b|DL裸运费|DL：/.test(t)) m.airline = 'DL';
   else if (/LH\b|上海LH|汉莎/.test(t)) m.airline = 'LH';
