@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- saved from url=(0035)https://x-zod.github.io/cargotools/ -->
 <html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -301,6 +300,9 @@
   .dim-row { display:flex; gap:6px; align-items:center; margin:6px 0; flex-wrap:wrap; }
   .dim-row input { width:80px; padding:5px 8px; border:1px solid var(--border); border-radius:4px; font-size:13px; }
 
+  /* 报价记录操作列按钮：四个字不折行 */
+  #listBody td[data-label="操作"] button { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+
   /* ============ 移动端适配（≤720px，iPhone 12 / 12 Pro Max）============ */
   @media (max-width: 720px) {
     /* --- 顶部导航：两行（brand 一行，tabs 横滑一行）--- */
@@ -383,6 +385,37 @@
     .mobile-cards td[data-label="操作"] > button { align-self: flex-start; }
     .mobile-cards td[data-label="操作"] .rate-actions { width: 100%; justify-content: space-between; }
     .mobile-cards td[data-label="操作"] .rate-actions .btn { flex: 0 0 auto; min-width: 0; padding-left: 8px; padding-right: 8px; white-space: nowrap; }
+    /* --- 报价记录：手机端只显示两行，整卡点击看详情 --- */
+    tbody.inq-compact tr {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas:
+        "date dest price"
+        "meta meta op";
+      align-items: center;
+      row-gap: 5px; column-gap: 10px;
+      padding: 9px 12px;
+      cursor: pointer;
+    }
+    tbody.inq-compact td {
+      display: block; border: none; padding: 0;
+      text-align: left; font-size: 13px;
+    }
+    tbody.inq-compact td::before { content: none; }
+    tbody.inq-compact td[data-label="日期"] { grid-area: date; color: var(--text-3); font-size: 12.5px; }
+    tbody.inq-compact td[data-label="目的港"] { grid-area: dest; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tbody.inq-compact td[data-label="表价"] { grid-area: price; text-align: right; }
+    tbody.inq-compact td[data-label="表价"] div { display: none; }
+    tbody.inq-compact td[data-label="表价"] .tag { background: transparent; padding: 0; color: var(--text-3); }
+    tbody.inq-compact td[data-label="件数/重量/体积"] { grid-area: meta; color: var(--text-2); font-size: 12.5px; }
+    tbody.inq-compact td[data-label="操作"] { grid-area: op; display: block; }
+    tbody.inq-compact td[data-label="操作"] button { font-size: 12px; height: auto; padding: 3px 9px; line-height: 1.4; }
+    /* 手机端竖屏不展示比重（比例），进详情管理查看 */
+    tbody.inq-compact td[data-label="比例"],
+    tbody.inq-compact td[data-label="客户/备注"],
+    tbody.inq-compact td[data-label="外配"],
+    tbody.inq-compact td[data-label="卖价"] { display: none; }
+    tbody.inq-compact tr:active { background: #f7f8fa; }
     /* 日期框：去掉原生外观差，与文本框同高同宽，日历图标保留 */
     input[type=date] { -webkit-appearance: none; appearance: none; min-height: 0; height: 41px; box-sizing: border-box; }
     /* --- 成本计算：table 转纵向，label 在上、输入在下 --- */
@@ -617,7 +650,7 @@
           <th style="width:95px">表价</th>
           <th style="width:95px">外配</th>
           <th style="width:95px">卖价</th>
-          <th style="width:70px"></th>
+          <th style="width:86px"></th>
         </tr>
       </thead>
       <tbody id="listBody"></tbody>
@@ -2465,7 +2498,7 @@ let _listLimit = LIST_PAGE;
 let _lastFiltered = [];
 function rowHtml(r) {
   const c = calc(r.weight, r.volume);
-  return `<tr>
+  return `<tr data-id="${r.id}">
       <td data-label="日期">${r.date.slice(5)}</td>
       <td data-label="目的港"><b>${esc(r.dest)}</b></td>
       <td data-label="件数/重量/体积">${r.pieces||'-'} / ${fmtNum(c.weight,0)} / ${fmtNum(c.volume,2)}</td>
@@ -2474,7 +2507,7 @@ function rowHtml(r) {
       <td data-label="表价">${r.ratePrice?('<span class="adopted-price">¥'+fmtNum(r.ratePrice,2)+'</span><div style="font-size:11px;color:var(--text-3)">'+esc(r.rateAirline||'')+(r.rateTransit?(' · '+esc(r.rateTransit)):'')+'</div>'):'<span class="tag tag-gray">-</span>'}</td>
       <td data-label="外配">${r.outerPrice?('<span style="color:var(--accent)">¥'+fmtNum(r.outerPrice,2)+'</span>'+(r.outerSupplier?'<br><span style="font-size:11px;color:var(--text-3)">'+esc(r.outerSupplier)+'</span>':'')):'<span class="tag tag-gray">-</span>'}</td>
       <td data-label="卖价">${r.customerPrice?('<b style="color:var(--primary)">¥'+fmtNum(r.customerPrice,2)+'</b>'):'<span class="tag tag-gray">-</span>'}</td>
-      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="${r.id}">详情</button></td>
+      <td data-label="操作"><button class="btn btn-ghost btn-sm" data-id="${r.id}">详情管理</button></td>
     </tr>`;
 }
 function updateMoreBar() {
@@ -2507,6 +2540,7 @@ function renderList(resetLimit) {
   }).sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
   const tbody = $('listBody');
+  tbody.classList.add('inq-compact');
   $('listEmpty').style.display = _lastFiltered.length ? 'none' : 'block';
   tbody.innerHTML = _lastFiltered.slice(0, _listLimit).map(rowHtml).join('');
   updateMoreBar();
@@ -2515,7 +2549,11 @@ function renderList(resetLimit) {
     tbody.__delegated = true;
     tbody.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-id]');
-      if (b) openDetail(b.dataset.id);
+      if (b) { openDetail(b.dataset.id); return; }
+      // 手机端：卡片本身可点（不再单独放"操作/详情"一行），点整卡直接看详情
+      if (!window.matchMedia || !window.matchMedia('(max-width: 720px)').matches) return;
+      const tr = e.target.closest('tr[data-id]');
+      if (tr) openDetail(tr.dataset.id);
     });
   }
 }
@@ -2868,17 +2906,6 @@ function renderStats() {
   `;
 }
 
-// ---------- AA/DL 经HNL 目的港池（源自 202610 AA/DL HNL出发.pdf）----------
-// 平时静默：库内港无表价匹配时不直接出价；仅当任一 AA 表价能匹配到、或 AA128 联动（直飞DFW转飞）到时才可被匹配
-// 其中 GRU/SCL/MVD/ASU 存在有效价格（靠 AA 表价匹配到即出价）；EZE/LPB/VVI 当前无有效价格（保持静默）
-const AA_DEST_POOL = {
-  // 美国全境
-  'ABQ':1,'ATL':1,'AUS':1,'BDL':1,'BNA':1,'BOS':1,'BWI':1,'CLE':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'DTW':1,'ELP':1,'EWR':1,'IAD':1,'IAH':1,'IND':1,'JFK':1,'LAS':1,'LAX':1,'LRD':1,'MCI':1,'MCO':1,'MEM':1,'MFE':1,'MIA':1,'MKE':1,'MSY':1,'OMA':1,'ORD':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'SAN':1,'SDF':1,'SEA':1,'SFO':1,'SLC':1,'STL':1,'TUL':1,'TPA':1,
-  // 加拿大 / 墨西哥
-  'YUL':1,'YYZ':1,'MEX':1,'GDL':1,'MTY':1,'CUN':1,
-  // 南美（有效港，静默：GRU/SCL/MVD/ASU 有有效价格；EZE/LPB/VVI 当前无价；均不参与 AA128 联动，靠 AA 表价匹配）
-  'GIG':1,'BOG':1,'SDQ':1,'GUA':1,'PTY':1,'MDE':1,'GYE':1,'UIO':1,'MGA':1,'MAO':1,'KIN':1,'SJO':1,'SJU':1,'BZE':1,'SAL':1,'LIM':1,'CLO':1,'POS':1,'STI':1,'SAP':1,'TGU':1,'BAQ':1,'BGI':1,'GRU':1,'SCL':1,'EZE':1,'MVD':1,'ASU':1,'LPB':1,'VVI':1
-};
 // AA128 中转加价区：美国全境+2；墨西哥/加拿大+7（MEX GDL MTY CUN；CUN仅限散货）
 const AA128_ZONE = {
   'ABQ':'US','ATL':'US','AUS':'US','BDL':'US','BNA':'US','BOS':'US','BWI':'US','CLE':'US','CLT':'US','CMH':'US','CVG':'US','DEN':'US','DFW':'US','DTW':'US','ELP':'US','EWR':'US','IAD':'US','IAH':'US','IND':'US','JFK':'US','LAS':'US','LAX':'US','LRD':'US','MCI':'US','MEM':'US','MFE':'US','MIA':'US','MKE':'US','MSY':'US','OMA':'US','ORD':'US','PHL':'US','PHX':'US','PIT':'US','RDU':'US','SAN':'US','SDF':'US','SEA':'US','SFO':'US','SLC':'US','STL':'US','TUL':'US','TPA':'US',
