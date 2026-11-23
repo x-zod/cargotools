@@ -453,6 +453,8 @@
     font-size: 12px;
   }
   .expired-group-head b { color: var(--text); font-size: 13px; }
+  /* 归档区（已过期）表价标题置灰，与有效表价拉开视觉层级 */
+  .expired-group td[data-label="航司"] > b { color: var(--text-3); }
 </style>
 </head>
 <body>
@@ -4396,7 +4398,30 @@ function renderExpiredArchive(expired) {
   $('expiredRateArrow').textContent = _expiredOpen ? '收起' : '展开';
   if (!groups.__delegated) { groups.__delegated = true; groups.addEventListener('click', rateActionsHandler); }
 }
+// 过期表价去重指纹：航司 + 中转 + 生效日 + 起运地 + 各行价格，完全一致才算重复
+function rateFingerprint(s) {
+  return JSON.stringify({ a: s.airline || '', t: s.transit || '', d: s.date || '', o: s.origin || '', r: s.rows || [] });
+}
+// 清理重复的过期表价：同一指纹只留最后更新的一张，其余打墓碑（随云端同步一并删除）
+function dedupeExpiredRates() {
+  const expired = loadRates().filter(rateIsExpired);
+  const keep = new Map();
+  const dup = [];
+  expired.forEach(s => {
+    const k = rateFingerprint(s);
+    const prev = keep.get(k);
+    if (!prev) { keep.set(k, s); return; }
+    const newer = (s.updatedAt || 0) >= (prev.updatedAt || 0) ? s : prev;
+    const older = newer === s ? prev : s;
+    keep.set(k, newer);
+    if (!dup.includes(older.id)) dup.push(older.id);
+  });
+  dup.forEach(id => tombstoneRate(id));
+  return dup.length;
+}
 function renderRateList() {
+  const removedDup = dedupeExpiredRates();
+  if (removedDup) toast(`已清理 ${removedDup} 张重复的过期表价`);
   const all = loadRates();
   const filtered = _rateCategory === 'all' ? all : all.filter(s => classifyRate(s) === _rateCategory);
   const active = filtered.filter(s => !rateIsExpired(s));
