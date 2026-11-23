@@ -137,6 +137,9 @@
   .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .row-3 { grid-template-columns: repeat(3, 1fr); }
   .row-2 { grid-template-columns: repeat(2, 1fr); }
+  /* 导入表价：航司 / 订舱口 / 生效日 同一行，三个框等宽等高 */
+  .rate-meta-row { gap: 10px; }
+  .rate-meta-row .field input { height: 38px; padding: 8px 11px; }
   /* ===== 按钮（全局统一为后台管理大小） ===== */
   .btn {
     padding: 5px 12px;
@@ -326,6 +329,9 @@
     .card-title { font-size: 14px; margin-bottom: 10px; }
     /* --- 表单：单列；输入 16px 防 iOS 聚焦缩放 --- */
     .row, .row-3, .row-2, .row-4 { grid-template-columns: 1fr !important; gap: 8px; }
+    /* 导入表价三框：移动端逐行排列，间距与桌面统一为 10px，高度统一 */
+    .rate-meta-row { gap: 10px !important; }
+    .rate-meta-row .field input { height: 44px; padding: 10px 11px; }
     .parsed-grid { grid-template-columns: 1fr; }
     textarea, input, select,
     .field textarea, .field input, .field select,
@@ -674,20 +680,15 @@
 
   <div class="card">
     <div class="card-title">导入表价</div>
-    <div class="row row-3">
+    <div class="row row-3 rate-meta-row">
       <div class="field" style="margin:0">
         <input id="rateAirline" placeholder="填写航司代码，如：AA，DL，LH">
       </div>
       <div class="field" style="margin:0">
         <input id="rateTransit" placeholder="可选填备注，如：中转点，订舱口">
       </div>
-    </div>
-    <div class="row row-3">
       <div class="field" style="margin:0">
-        <input id="rateDate" type="date" placeholder="生效日期">
-      </div>
-      <div class="field" style="margin:0">
-        <input id="rateExpiry" type="date" placeholder="到期日期（可选）">
+        <input id="rateDate" type="date" aria-label="生效日期">
       </div>
     </div>
     <div class="btn-row" style="margin-top:10px">
@@ -4358,7 +4359,8 @@ $('excelFile').addEventListener('change', async (e) => {
     // 按文件名/sheet 名自动识别航司，填入航司输入框
     const det = detectAirlineFromExcel(f.name, workbook);
     if (det && $('rateAirline')) $('rateAirline').value = det;
-    if (sheetRemarks.__date && $('rateDate') && !$('rateDate').value) $('rateDate').value = sheetRemarks.__date;
+    // 表价自带生效日优先（覆盖默认的今天）
+    if (sheetRemarks.__date && $('rateDate')) $('rateDate').value = sheetRemarks.__date;
     showRatePreview(parsedRows);
     toast(`识别到 ${parsedRows.length} 个目的港有效价格（灰色字体已自动过滤）${det ? '，已自动填入航司 ' + det : ''}`);
   } catch(err) {
@@ -4418,12 +4420,16 @@ function autoExpireRates(sheets) {
   return count;
 }
 
+// 生效日默认今天（导进来的表价基本就是当天生效，仍可手动改）
+if ($('rateDate') && !$('rateDate').value) $('rateDate').value = todayStr();
+
 $('btnSaveRate').addEventListener('click', () => {
   if (!parsedRows || !parsedRows.length) return;
   const airline = $('rateAirline').value.trim().toUpperCase();
   if (!airline) { toast('请填航司代码'); return; }
   const date = $('rateDate').value || todayStr();
-  const expiry = $('rateExpiry').value || '';
+  // 到期日输入框已移除：新表价不再设到期日，过期由「同航司+中转点保留最新生效日」自动判定
+  const expiry = '';
   // 判断是否UC基准表价（从Excel导入的UC表价）
   const isUCBase = airline === 'UC' && parsedRows.some(r => r.ucMeta);
   // 按中转点分组：每个中转点生成一张独立表价（如 AA·直飞DFW、AA·经HND）
