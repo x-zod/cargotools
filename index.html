@@ -455,6 +455,22 @@
   .expired-group-head b { color: var(--text); font-size: 13px; }
   /* 归档区（已过期）表价标题置灰，与有效表价拉开视觉层级 */
   .expired-group td[data-label="航司"] > b { color: var(--text-3); }
+  /* 归档表固定列宽，避免航司名长短不一导致日期列左右错位（窄屏走卡片式，不适用） */
+  @media (min-width: 721px) { .archive-table { table-layout: fixed; width: 100%; } }
+  /* 归档区航司按钮：默认全部收起，点哪个才展开哪一组 */
+  .expired-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .expired-airline-tab .expired-tab-cnt { font-size: 11px; opacity: .6; }
+  .expired-tabbar .expired-airline-tab.active {
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-color: var(--primary);
+  }
 </style>
 </head>
 <body>
@@ -4320,6 +4336,7 @@ function classifyRate(s) {
   return 'other';
 }
 let _expiredOpen = false;
+let _expiredAirline = '';   // 归档区当前展开的航司（'' = 全部收起）
 function rateIsExpired(s) {
   return s.expired === true || (s.expiry && s.expiry < todayStr());
 }
@@ -4386,17 +4403,36 @@ function renderExpiredArchive(expired) {
     const k = (s.airline || '未填航司').toUpperCase();
     (byAirline[k] = byAirline[k] || []).push(s);
   });
-  groups.innerHTML = Object.keys(byAirline).sort().map(k => {
-    const list = byAirline[k].slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-    const latest = list[0].date ? ` · 最新 ${esc(list[0].date)}` : '';
-    return `<div class="expired-group">
+  const keys = Object.keys(byAirline).sort();
+  // 先用航司按钮收拢，点哪个才展开哪一组；默认全部收起
+  groups.innerHTML =
+    `<div class="expired-tabbar">${keys.map(k =>
+      `<button type="button" class="btn btn-sm btn-ghost expired-airline-tab${_expiredAirline === k ? ' active' : ''}" data-airline="${esc(k)}">${esc(k)}<span class="expired-tab-cnt">${byAirline[k].length}</span></button>`
+    ).join('')}</div>` +
+    keys.map(k => {
+      const list = byAirline[k].slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      const latest = list[0].date ? ` · 最新 ${esc(list[0].date)}` : '';
+      return `<div class="expired-group" data-airline="${esc(k)}" style="display:${_expiredAirline === k ? 'block' : 'none'}">
       <div class="expired-group-head"><b>${esc(k)}</b><span>${list.length} 张${latest}</span></div>
-      <table class="mobile-cards"><tbody>${list.map(s => rateRowHtml(s, true)).join('')}</tbody></table>
+      <table class="mobile-cards archive-table">
+        <colgroup><col style="width:88px"><col style="width:110px"><col style="width:110px"></colgroup>
+        <tbody>${list.map(s => rateRowHtml(s, true)).join('')}</tbody>
+      </table>
     </div>`;
-  }).join('');
+    }).join('');
   groups.style.display = _expiredOpen ? 'block' : 'none';
   $('expiredRateArrow').textContent = _expiredOpen ? '收起' : '展开';
   if (!groups.__delegated) { groups.__delegated = true; groups.addEventListener('click', rateActionsHandler); }
+  if (!groups.__tabDelegated) { groups.__tabDelegated = true; groups.addEventListener('click', expiredAirlineTabHandler); }
+}
+// 归档区的航司按钮：点一下展开该组，再点一下收起
+function expiredAirlineTabHandler(e) {
+  const b = e.target.closest('.expired-airline-tab');
+  if (!b) return;
+  const k = b.dataset.airline || '';
+  _expiredAirline = (_expiredAirline === k) ? '' : k;
+  const cur = loadRates().filter(s => (_rateCategory === 'all' || classifyRate(s) === _rateCategory) && rateIsExpired(s));
+  renderExpiredArchive(cur);
 }
 // 过期表价去重指纹：航司 + 中转 + 生效日 + 起运地 + 各行价格，完全一致才算重复
 function rateFingerprint(s) {
