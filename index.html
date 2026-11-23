@@ -60,14 +60,19 @@
     margin-left: auto;
     width: 32px; height: 32px;
     border-radius: 50%;
-    background: #f0f0f2;
+    background: transparent;
     border: none;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; color: #666; padding: 0;
+    cursor: pointer; color: var(--text-3); padding: 0;
+    transition: background .16s ease, color .16s ease, transform .16s ease;
     -webkit-tap-highlight-color: transparent;
   }
-  .refresh-btn:active { background: #e0e0e4; }
+  @media (hover: hover) { .refresh-btn:hover { background: rgba(0,0,0,.05); color: var(--text); } }
+  .refresh-btn:active { background: rgba(0,0,0,.09); transform: scale(.94); }
   .refresh-btn svg { width: 17px; height: 17px; }
+  .refresh-btn.is-syncing { pointer-events: none; opacity: .65; }
+  .refresh-btn.is-syncing svg { animation: refresh-spin .9s linear infinite; }
+  @keyframes refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   .tabs { display: flex; gap: 4px; height: 100%; }
   .tab {
     padding: 0 16px;
@@ -499,7 +504,7 @@
   <div class="brand">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path></svg>
     空运货代工具
-    <button class="refresh-btn" onclick="location.reload()" aria-label="刷新页面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+    <button class="refresh-btn" id="btnRefresh" aria-label="刷新页面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
   </div>
   <div class="tabs">
     <div class="tab active" data-view="quick">询价数据</div>
@@ -830,6 +835,21 @@
     <div id="syncStatus" style="margin-top:6px;font-size:12px;color:var(--text-3)"></div>
   </div>
   <div class="card">
+    <div class="card-title">数据保留</div>
+    <p style="color:var(--text-2);font-size:13px;margin-bottom:10px">
+      默认不清理。选定「保留 1 年 / 2 年」后，打开页面时会自动删除超期的已过期表价和询价记录（含云端删除标记），有效表价不受影响。询价不再保存粘贴原文。
+    </p>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <select id="retentionYears" style="font-size:12px;padding:5px 8px;min-width:120px">
+        <option value="0">不自动清理</option>
+        <option value="1">保留 1 年</option>
+        <option value="2">保留 2 年</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="btnRunRetention" style="padding:5px 12px">立即清理</button>
+    </div>
+    <div id="retentionStatus" style="font-size:12px;color:var(--text-3)"></div>
+  </div>
+  <div class="card">
     <div class="card-title">本地数据管理</div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <button class="btn btn-primary btn-sm" id="btnExport" style="padding:5px 12px">备份</button>
@@ -915,6 +935,22 @@ function getSyncConfig() {
     return cfg;
   } catch(e) { return { workerUrl: DEFAULT_WORKER_URL, mode: 'default' }; }
 }
+let _syncFailToastAt = 0;
+// 同步失败统一入口：置失败态 + 刷新状态栏圆点 + 30 秒内只提示一次（避免连续保存刷屏）
+function markSyncFail(reason) {
+  window.__syncState = 'fail';
+  if (typeof updateSyncStatus === 'function') updateSyncStatus();
+  const now = Date.now();
+  if (now - _syncFailToastAt > 30000) {
+    _syncFailToastAt = now;
+    toast('云端同步失败（' + (reason || '网络异常') + '），数据已存在本机');
+  }
+}
+function markSyncOk() {
+  if (window.__syncState === 'ok') return;
+  window.__syncState = 'ok';
+  if (typeof updateSyncStatus === 'function') updateSyncStatus();
+}
 async function syncToCloud(path, data) {
   const cfg = getSyncConfig();
   if (cfg.mode === 'local' || !cfg.workerUrl || !cfg.username || !cfg.password) return false;
@@ -928,8 +964,10 @@ async function syncToCloud(path, data) {
       },
       body: JSON.stringify(data)
     });
-    return r.ok;
-  } catch(e) { console.log('云同步失败:', e); return false; }
+    if (!r.ok) { markSyncFail('HTTP ' + r.status); return false; }
+    markSyncOk();
+    return true;
+  } catch(e) { console.log('云同步失败:', e); markSyncFail('网络异常'); return false; }
 }
 async function syncFromCloud(path) {
   const cfg = getSyncConfig();
@@ -967,6 +1005,9 @@ function pruneOldTombs(tombs) {
 // 通用 localStorage + 墓碑 + LWW 云同步存储工厂（inquiries/rates/adjustments 三套共用）
 function createStore(key, apiPath) {
   let cache = null, rawCache = null, dirty = true;
+  // 双向同步期间抑制 save 自带推送，由 cloudSyncAll 统一回写一次，避免重复请求
+  let _suppressPush = 0;
+  function setPushSuppressed(v) { _suppressPush = v ? 1 : 0; }
   function load() {
     try {
       if (cache === null || dirty) {
@@ -979,26 +1020,57 @@ function createStore(key, apiPath) {
     } catch(e) { return []; }
   }
   function loadRaw() { load(); return rawCache || []; }
+  // localStorage 写入保护：配额满（QuotaExceededError）时先丢弃墓碑压缩后重试，仍失败只提示，内存态照常可用
+  function persist(merged) {
+    try { localStorage.setItem(key, JSON.stringify(merged)); return true; }
+    catch (e) {
+      const compact = (merged || []).filter(x => !x.deleted);
+      try {
+        localStorage.setItem(key, JSON.stringify(compact));
+        toast('本地空间将满：已清理 ' + ((merged || []).length - compact.length) + ' 条历史删除标记');
+        rawCache = compact;
+        return true;
+      } catch (e2) {
+        toast('本地存储已满（约 5MB 上限），请删除部分已过期表价后再保存');
+        return false;
+      }
+    }
+  }
   function save(list) {
     // list 是 active 全量；保留旧墓碑（deleted 且 list 中已没有该 id），同步时推到云端
     const tombs = pruneOldTombs((loadRaw() || []).filter(x => x.deleted && !list.some(y => y.id === x.id)));
     const merged = list.concat(tombs);
-    localStorage.setItem(key, JSON.stringify(merged));
+    persist(merged);
     cache = list; rawCache = merged; dirty = false;
-    syncToCloud(apiPath, merged);
+    if (!_suppressPush) syncToCloud(apiPath, merged);
   }
   function tombstone(id) {
     const all = (loadRaw() || [])
       .map(x => x.id === id ? Object.assign({}, x, { deleted: true, updatedAt: Date.now() }) : x)
       .filter(x => !x.deleted || (Date.now() - (x.updatedAt || 0)) < TOMB_TTL_MS);
-    localStorage.setItem(key, JSON.stringify(all));
+    persist(all);
     rawCache = all;
     cache = all.filter(x => !x.deleted);
     dirty = false;
-    syncToCloud(apiPath, all);
+    if (!_suppressPush) syncToCloud(apiPath, all);
+  }
+  // 批量删除（保留策略用）：一次写入 + 一次云端推送，避免逐条请求
+  function batchTombstone(ids) {
+    const idSet = new Set(ids || []);
+    if (!idSet.size) return 0;
+    const now = Date.now();
+    const all = (loadRaw() || [])
+      .map(x => idSet.has(x.id) ? Object.assign({}, x, { deleted: true, updatedAt: now }) : x)
+      .filter(x => !x.deleted || (now - (x.updatedAt || 0)) < TOMB_TTL_MS);
+    persist(all);
+    rawCache = all;
+    cache = all.filter(x => !x.deleted);
+    dirty = false;
+    if (!_suppressPush) syncToCloud(apiPath, all);
+    return idSet.size;
   }
   function invalidate() { cache = null; rawCache = null; dirty = true; }
-  return { load, loadRaw, save, tombstone, invalidate };
+  return { load, loadRaw, save, tombstone, batchTombstone, invalidate, setPushSuppressed };
 }
 
 const inqStore = createStore(STORE_KEY, '/api/inquiries');
@@ -1020,14 +1092,16 @@ function toast(msg) {
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
 }
-function todayStr() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+// 本地时区日期（YYYY-MM-DD）。不能用 toISOString：东八区 00:00–07:59 会取到前一天
+function fmtLocalDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 }
+function todayStr() { return fmtLocalDate(new Date()); }
 function daysAgoStr(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return fmtLocalDate(d);
 }
 function fmtNum(n, digits) {
   if (n === null || n === undefined || isNaN(n)) return '-';
@@ -1448,9 +1522,11 @@ $('btnParse').addEventListener('click', () => {
     $('view-quick').appendChild(card);
 
     $('btnSaveMulti').addEventListener('click', () => {
-      if ($('btnSaveMulti').dataset.busy) return;
-      $('btnSaveMulti').dataset.busy = '1';
-      setTimeout(() => { delete $('btnSaveMulti').dataset.busy; }, 1000);
+      const btn = $('btnSaveMulti');
+      if (!btn || btn.dataset.busy) return;
+      btn.dataset.busy = '1';
+      // 保存后会移除整张卡，1 秒后 btn 已不在 DOM，必须判空
+      setTimeout(() => { if (btn) delete btn.dataset.busy; }, 1000);
       // 读取表格里改后的值
       const rows = card.querySelectorAll('tbody tr');
       const all = loadAll();
@@ -1478,6 +1554,7 @@ $('btnParse').addEventListener('click', () => {
         if (mt) {
           rec.ratePrice = mt.final;
           rec.rateAirline = mt.airline;
+          rec.rateTransit = mt.transit || null;
           rec.rateDensity = mt.density || null;
           rec.rateDate = mt.sheetDate || null;
         }
@@ -1553,12 +1630,12 @@ function updateSimilar() {
     const c = calc(s.weight, s.volume);
     return `<div class="similar-item">
       <div class="similar-left">
-        <div><b>${s.dest}</b> · ${s.pieces||'-'}件 · 毛重${fmtNum(c.weight,1)}kg · ${fmtNum(c.volume,2)}方 · 计费重${fmtNum(c.chargeW,0)}kg</div>
-        <div class="similar-meta">${s.date} · ${s.customer||''} ${s.remark?('· '+s.remark):''}</div>
+        <div><b>${esc(s.dest)}</b> · ${esc(s.pieces||'-')}件 · 毛重${fmtNum(c.weight,1)}kg · ${fmtNum(c.volume,2)}方 · 计费重${fmtNum(c.chargeW,0)}kg</div>
+        <div class="similar-meta">${esc(s.date)} · ${esc(s.customer||'')} ${s.remark?('· '+esc(s.remark)):''}</div>
       </div>
       <div class="similar-price">
         ¥${s.customerPrice?fmtNum(s.customerPrice,2):'-'}<small>/kg</small>
-        <div class="similar-meta" style="text-align:right">${s.customer||''}</div>
+        <div class="similar-meta" style="text-align:right">${esc(s.customer||'')}</div>
       </div>
     </div>`;
   }).join('');
@@ -2146,18 +2223,18 @@ function updateRateMatch() {
     // 完全没匹配到：显示卡片（含诊断）
     card.style.display = 'block';
     const allDests = sheets.flatMap(s => s.rows ? s.rows.map(r => r.dest) : []);
-    let dbg = `<div class="empty">表价库里没有 ${dest} 的当前价格</div>`;
+    let dbg = `<div class="empty">表价库里没有 ${esc(dest)} 的当前价格</div>`;
     dbg += `<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;color:var(--text-3)">`;
-    dbg += `表价库共 ${allDests.length} 个目的港：${allDests.slice(0,20).join(', ')}${allDests.length>20?'...':''}`;
+    dbg += `表价库共 ${allDests.length} 个目的港：${esc(allDests.slice(0,20).join(', '))}${allDests.length>20?'...':''}`;
     const guaRows = sheets.flatMap(s => (s.rows||[]).filter(r => normalizeDest(r.dest) === dest).map(r => ({sheet:s, row:r})));
     if (guaRows.length) {
-      dbg += `<br><b>${dest} 在库明细：</b>`;
+      dbg += `<br><b>${esc(dest)} 在库明细：</b>`;
       guaRows.forEach(({sheet,row}) => {
-        dbg += `<br>· ${sheet.airline} (${sheet.date}) 显示名"${row.dest}"<br>&nbsp;&nbsp;标准价=${JSON.stringify(row.prices||{})}<br>&nbsp;&nbsp;比重价=${JSON.stringify(row.densityPrices||{})}`;
+        dbg += `<br>· ${esc(sheet.airline)} (${esc(sheet.date)}) 显示名"${esc(row.dest)}"<br>&nbsp;&nbsp;标准价=${esc(JSON.stringify(row.prices||{}))}<br>&nbsp;&nbsp;比重价=${esc(JSON.stringify(row.densityPrices||{}))}`;
       });
       dbg += `<br>本次询价：计费重 ${c.chargeW}kg → ${WEIGHT_LABEL[wk]}档，密度比 ${densityRatio.toFixed(0)} → ${DENSITY_LABEL[dk]||dk}`;
     } else {
-      dbg += `<br><b>${dest} 没有任何表价行入库</b>（可能被灰色过滤掉，或表里没有）`;
+      dbg += `<br><b>${esc(dest)} 没有任何表价行入库</b>（可能被灰色过滤掉，或表里没有）`;
     }
     dbg += `</div>`;
     box.innerHTML = dbg;
@@ -2182,8 +2259,8 @@ function updateRateMatch() {
     } else {
       weightPart = ` · ${WEIGHT_LABEL[m.weightKey]}档${denLbl ? ` · ${denLbl}` : ''}`;
     }
-    let titleLine = `<b>${chl || m.airline}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${m.transit}</span>` : ''} · ${m.matchedDest}${weightPart}`;
-    if (m.routing) titleLine += ` · ${m.routing}`;
+    let titleLine = `<b>${esc(chl || m.airline)}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${esc(m.transit)}</span>` : ''} · ${esc(m.matchedDest)}${weightPart}`;
+    if (m.routing) titleLine += ` · ${esc(m.routing)}`;
     const extras = [];
     if (m.gwType) extras.push(m.gwType);
     if (!m.ucNote && m.gwType === '空转') {
@@ -2192,8 +2269,8 @@ function updateRateMatch() {
       if (hubM) m.ucNote = hubM[1].toUpperCase() + '空转单件限重80kg';
     }
     if (m.ucNote) extras.push(m.ucNote);
-    if (extras.length) titleLine += ` | ${extras.join(' | ')}`;
-    let metaLine = `表价生效 ${m.sheetDate}`;
+    if (extras.length) titleLine += ` | ${extras.map(esc).join(' | ')}`;
+    let metaLine = `表价生效 ${esc(m.sheetDate)}`;
     if (isUC) {
       const remark = m.remark || '';
       const ue = [];
@@ -2206,10 +2283,10 @@ function updateRateMatch() {
       if (ue.length) metaLine += ' · ' + ue.join(' / ');
     } else {
       const hasPalVariant = m.variants && Object.keys(m.variants).some(k => /托盘$/.test(k));
-      metaLine += m.remark ? (' · '+soloBulkNoteFor(stripMainPriceNote(m.remark), m.weightKey, !!hasPalVariant)) : '';
+      metaLine += m.remark ? (' · '+esc(soloBulkNoteFor(stripMainPriceNote(m.remark), m.weightKey, !!hasPalVariant))) : '';
     }
     const neighborLine = m.neighborNote
-      ? `<div style="font-size:12px;color:var(--accent);margin-top:3px">${m.neighborNote}</div>`
+      ? `<div style="font-size:12px;color:var(--accent);margin-top:3px">${esc(m.neighborNote)}</div>`
       : '';
     let variantsLine = '';
     if (m.variants && Object.keys(m.variants).length) {
@@ -2233,7 +2310,7 @@ function updateRateMatch() {
           if (g.bulk !== null) parts.push(`散¥${g.bulk}`);
           if (g.pal !== null) parts.push(`托¥${g.pal}`);
           const hitTag = (g.isMain && smallHit) ? `<span style="background:#FEF3C7;color:#B45309;border:1px solid #FCD34D;border-radius:3px;padding:0 4px;font-size:11px;font-weight:600;margin-left:4px">${adjHits.join(' ')}</span>` : '';
-          return `<span style="${g.isMain ? 'color:var(--green);font-weight:600' : ''}">${name} ${parts.join('/')}${hitTag}</span>`;
+          return `<span style="${g.isMain ? 'color:var(--green);font-weight:600' : ''}">${esc(name)} ${parts.join('/')}${hitTag}</span>`;
         }).join(' · ') +
         '</div>';
     }
@@ -2256,7 +2333,7 @@ function updateRateMatch() {
     html += '<div style="font-weight:600;margin-bottom:6px">⚠ 同目的港其他档有效价格（供参考）：</div>';
     missing.forEach(m => {
       const chl = channelLabel(m.airline, m.transit);
-      html += `<div style="margin:2px 0"><b>${chl || m.airline}</b>${(m.transit && !chl)?`<span style="color:var(--accent);font-size:11px">(${m.transit})</span>`:''} ${m.matchedDest}：${m.avail} <span style="color:var(--text-3)">（${m.sheetDate}）</span></div>`;
+      html += `<div style="margin:2px 0"><b>${esc(chl || m.airline)}</b>${(m.transit && !chl)?`<span style="color:var(--accent);font-size:11px">(${esc(m.transit)})</span>`:''} ${esc(m.matchedDest)}：${esc(m.avail)} <span style="color:var(--text-3)">（${esc(m.sheetDate)}）</span></div>`;
     });
     html += '</div>';
   }
@@ -2264,7 +2341,7 @@ function updateRateMatch() {
     html += '<div style="margin-top:10px;padding:9px 14px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;font-size:12.5px;color:#991B1B">';
     html += mutedHits.map(m => {
       const chl = channelLabel(m.airline, m.transit) || m.airline;
-      return `<div style="margin:2px 0"><b>${chl}</b> ${m.dest}：市价忽略，暂不出价${m.until ? '（至 ' + m.until + '）' : ''}${m.note && m.note !== '市价忽略' ? '，' + m.note : ''}</div>`;
+      return `<div style="margin:2px 0"><b>${esc(chl)}</b> ${esc(m.dest)}：市价忽略，暂不出价${m.until ? '（至 ' + esc(m.until) + '）' : ''}${m.note && m.note !== '市价忽略' ? '，' + esc(m.note) : ''}</div>`;
     }).join('');
     html += '</div>';
   }
@@ -2296,12 +2373,12 @@ function updateOuterRef() {
     return `
     <div class="similar-item">
       <div class="similar-left">
-        <div><b>${r.outerSupplier || '外配'}</b> · <span style="color:var(--text-2)">${r.date}${days!=null&&days>=0?('（'+days+'天前）'):''}</span></div>
-        <div class="similar-meta">${WEIGHT_LABEL[wk]}档 · 计费重 ${fmtNum(calc(r.weight,r.volume).chargeW,0)}kg${r.customer?(' · '+r.customer):''}</div>
+        <div><b>${esc(r.outerSupplier || '外配')}</b> · <span style="color:var(--text-2)">${esc(r.date)}${days!=null&&days>=0?('（'+days+'天前）'):''}</span></div>
+        <div class="similar-meta">${WEIGHT_LABEL[wk]}档 · 计费重 ${fmtNum(calc(r.weight,r.volume).chargeW,0)}kg${r.customer?(' · '+esc(r.customer)):''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:17px;font-weight:700;color:var(--accent)">¥${fmtNum(r.outerPrice,2)}<small style="font-size:12px;color:var(--text-3)">/kg</small></span>
-        <button class="btn btn-ghost btn-sm" data-fill="${r.id}">填入</button>
+        <button class="btn btn-ghost btn-sm" data-fill="${esc(r.id)}">填入</button>
       </div>
     </div>`;
   }).join('');
@@ -2323,6 +2400,11 @@ $('btnToCost').addEventListener('click', () => {
   if (!vol && !gw) { toast('请先解析询价数据'); return; }
   $('ccVolume').value = vol ? vol.toFixed(4) : '';
   $('ccGW').value = gw ? gw : '';
+  // 已匹配到表价时顺带带入成本单价，点一次即可看到分泡后单价与总成本
+  if (window.__currentRatePrice) {
+    $('ccRmb').value = window.__currentRatePrice;
+    $('ccTargetUsd').value = '';
+  }
   ccRefresh();
   // 切到成本计算tab
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -2353,7 +2435,7 @@ $('btnSave').addEventListener('click', () => {
     dims: $('fDims').value.trim(),
     customer: $('fCustomer').value.trim(),
     remark: $('fRemark').value.trim(),
-    raw_text: $('rawText').value.trim(),
+    // 不保存粘贴原文：一条询价省约 40% 体积（价格字段已完整记录，原文只用于复核）
     ratePrice: window.__currentRatePrice || null,  // 自动匹配的表价
     rateAirline: window.__currentRateAirline || null,
     rateTransit: window.__currentRateTransit || null,
@@ -2466,11 +2548,12 @@ function openDetail(id) {
   $('modalTitle').textContent = `${r.dest} · ${r.date}${r.customer?(' · '+r.customer):''}`;
   $('modalBody').innerHTML = `
     <div style="background:var(--bg);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:13.5px">
-      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px">
-        <span>件数 <b>${r.pieces||'-'}</b></span>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
+        <span>件数 <b>${esc(r.pieces||'-')}</b></span>
         <span>毛重 <b>${fmtNum(c.weight,1)} kg</b></span>
         <span>体积 <b>${fmtNum(c.volume,2)} CBM</b></span>
-        <span>尺寸 <b>${r.dims||'-'}</b></span>
+        <span>尺寸 <b>${esc(r.dims||'-')}</b></span>
+        <button class="btn btn-ghost btn-sm" id="btnEditQty" style="margin-left:auto;padding:3px 10px;font-size:12px">修改货量</button>
       </div>
       <div style="display:flex;gap:20px;flex-wrap:wrap;color:var(--primary)">
         <span>体积重 ${fmtNum(c.volW,1)}kg</span>
@@ -2479,13 +2562,28 @@ function openDetail(id) {
       </div>
       ${r.remark?('<div style="margin-top:6px;color:var(--text-2)">备注：'+esc(stripMainPriceNote(r.remark))+'</div>'):''}
       ${r.raw_text?('<div style="margin-top:6px;color:var(--text-3);font-size:12px;white-space:pre-wrap;word-break:break-all">原文：'+esc(r.raw_text)+'</div>'):''}
+      <div id="qtyEditBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px">
+          <label style="display:flex;align-items:center;gap:4px">目的港 <input id="qeDest" value="${esc(r.dest||'')}" style="width:78px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;text-transform:uppercase;font-size:12.5px"></label>
+          <label style="display:flex;align-items:center;gap:4px">件数 <input id="qePieces" type="number" min="0" value="${esc(r.pieces||'')}" style="width:64px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12.5px"></label>
+          <label style="display:flex;align-items:center;gap:4px">毛重 <input id="qeWeight" type="number" step="0.1" min="0" value="${esc(r.weight||'')}" style="width:76px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12.5px"></label>
+          <label style="display:flex;align-items:center;gap:4px">体积 <input id="qeVolume" type="number" step="0.01" min="0" value="${esc(r.volume||'')}" style="width:76px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12.5px"></label>
+          <label style="display:flex;align-items:center;gap:4px">日期 <input id="qeDate" type="date" value="${esc(r.date||'')}" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12.5px"></label>
+          <label style="display:flex;align-items:center;gap:4px;flex:1 1 200px">备注 <input id="qeRemark" value="${esc(r.remark||'')}" style="flex:1;min-width:120px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12.5px"></label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" id="qeSave">保存并重算</button>
+          <button class="btn btn-ghost btn-sm" id="qeCancel">取消</button>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-3);margin-top:6px">保存后按新货量重算计费重/泡重比，并用当前表价库重新匹配价格</div>
+      </div>
     </div>
 
     <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:6px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-weight:600;width:60px">表价</span>
         <span style="color:var(--green);font-size:16px">${r.ratePrice?('¥'+fmtNum(r.ratePrice,2)+' /kg'):'-'}</span>
-        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${r.rateAirline}${r.rateTransit?(' · '+r.rateTransit):''}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}${r.rateDate?(' · '+r.rateDate):''}</span>`:''}
+        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${esc(r.rateAirline)}${r.rateTransit?(' · '+esc(r.rateTransit)):''}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}${r.rateDate?(' · '+esc(r.rateDate)):''}</span>`:''}
         <button class="btn btn-ghost btn-sm" id="btnReMatchRate" title="用当前已导入表价重新匹配此票">更新</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
@@ -2496,7 +2594,7 @@ function openDetail(id) {
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
         <span style="font-weight:600;width:60px">卖价</span>
-        <input id="fCustomerName" type="text" value="${r.customer||''}" placeholder="客户名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
+        <input id="fCustomerName" type="text" value="${esc(r.customer||'')}" placeholder="客户名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
         <input id="fCustomerPrice" type="number" step="0.1" value="${r.customerPrice||''}" placeholder="卖价 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
         <button class="btn btn-ghost btn-sm" id="btnSaveCustPrice">保存</button>
       </div>
@@ -2522,10 +2620,10 @@ function openDetail(id) {
     Math.abs(Number(x.volume || 0) - Number(r.volume || 0)) < 0.01
   ).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   if (past.length) {
-    pastBox.innerHTML = '<div style="font-weight:600;margin-bottom:4px">同票历史价格（' + r.dest + ' / ' + (r.pieces||'-') + '件 / ' + fmtNum(r.weight,1) + 'kg / ' + fmtNum(r.volume,2) + 'CBM）</div>' +
+    pastBox.innerHTML = '<div style="font-weight:600;margin-bottom:4px">同票历史价格（' + esc(r.dest) + ' / ' + esc(r.pieces||'-') + '件 / ' + fmtNum(r.weight,1) + 'kg / ' + fmtNum(r.volume,2) + 'CBM）</div>' +
       past.slice(0, 8).map(x =>
         '<div style="display:flex;gap:14px;font-size:12.5px;color:var(--text-2);border-top:1px solid var(--border);padding:5px 0;align-items:center">' +
-        '<span style="width:88px;flex-shrink:0">' + x.date + '</span>' +
+        '<span style="width:88px;flex-shrink:0">' + esc(x.date) + '</span>' +
         '<span style="color:var(--green)">表价' + (x.ratePrice != null ? '¥' + fmtNum(x.ratePrice,2) : '-') + '</span>' +
         '<span style="color:var(--accent)">外配' + (x.outerPrice != null ? '¥' + fmtNum(x.outerPrice,2) : '-') + '</span>' +
         '<span style="color:var(--primary)">卖价' + (x.customerPrice != null ? '¥' + fmtNum(x.customerPrice,2) : '-') + '</span>' +
@@ -2549,6 +2647,40 @@ function openDetail(id) {
     r.updatedAt = Date.now();
     saveAll(loadAll().map(x => x.id === r.id ? r : x));
     toast('已用 ' + m.airline + (m.transit?'·'+m.transit:'') + ' ' + r.dest + ' 表价更新（¥' + fmtNum(m.final,2) + '）');
+    renderList();
+    closeModal();
+    openDetail(r.id);
+  });
+
+  // 修改货量/备注：解析错了不必删重录，保存后按新参数重算并重新匹配表价
+  if ($('btnEditQty')) $('btnEditQty').addEventListener('click', () => {
+    const box = $('qtyEditBox');
+    box.style.display = (box.style.display === 'none' || !box.style.display) ? 'block' : 'none';
+  });
+  if ($('qeCancel')) $('qeCancel').addEventListener('click', () => { $('qtyEditBox').style.display = 'none'; });
+  if ($('qeSave')) $('qeSave').addEventListener('click', () => {
+    const nd = ($('qeDest').value || '').trim().toUpperCase();
+    if (!nd) { toast('目的港不能为空'); return; }
+    r.dest = nd;
+    r.pieces = parseFloat($('qePieces').value) || 0;
+    r.weight = parseFloat($('qeWeight').value) || 0;
+    r.volume = parseFloat($('qeVolume').value) || 0;
+    r.date = $('qeDate').value || r.date;
+    r.remark = $('qeRemark').value.trim();
+    // 货量变了，旧表价不再对应这票：按新参数重新匹配一次
+    const m2 = lookupRateFor(r.dest, r.weight, r.volume);
+    if (m2) {
+      r.ratePrice = m2.final;
+      r.rateAirline = m2.airline;
+      r.rateTransit = m2.transit || null;
+      r.rateDensity = m2.density || null;
+      r.rateDate = m2.sheetDate || null;
+    } else {
+      r.ratePrice = null; r.rateAirline = null; r.rateTransit = null; r.rateDensity = null; r.rateDate = null;
+    }
+    r.updatedAt = Date.now();
+    saveAll(loadAll().map(x => x.id === r.id ? r : x));
+    toast('货量已更新并重算' + (r.ratePrice ? '（表价 ¥' + fmtNum(r.ratePrice, 2) + '）' : '（未匹配到表价）'));
     renderList();
     closeModal();
     openDetail(r.id);
@@ -2581,6 +2713,11 @@ function openDetail(id) {
   $('btnDetailToCost').addEventListener('click', () => {
     $('ccVolume').value = r.volume ? r.volume.toFixed(4) : '';
     $('ccGW').value = r.weight ? r.weight : '';
+    // 已记录表价的票：带入成本单价，一键得到分泡后单价与总成本
+    if (r.ratePrice) {
+      $('ccRmb').value = r.ratePrice;
+      $('ccTargetUsd').value = '';
+    }
     ccRefresh();
     closeModal();
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -2623,12 +2760,12 @@ $('btnExport').addEventListener('click', () => {
 
 // 导出 CSV（供 Python 分析 / 知识库投喂）
 $('btnExportCSV').addEventListener('click', () => {
-  const esc = v => { const s = (v===null||v===undefined)?'':String(v); return /[",\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
+  const csvEsc = v => { const s = (v===null||v===undefined)?'':String(v); return /[",\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
   const today = todayStr();
   // 1) 报价记录
   const inqRows = loadAll().map(r => {
     const c = calc(r.weight, r.volume);
-    return [r.date||'', r.dest||'', r.pieces||'', r.weight||'', r.volume||'', c.chargeW, WEIGHT_LABEL[matchWeightKey(c.chargeW)]||'', r.ratePrice!=null?r.ratePrice:'', r.rateAirline||'', r.outerPrice!=null?r.outerPrice:'', r.outerSupplier||'', r.customerPrice!=null?r.customerPrice:'', r.customer||'', (r.remark||'').replace(/\n/g,' ')].map(esc).join(',');
+    return [r.date||'', r.dest||'', r.pieces||'', r.weight||'', r.volume||'', c.chargeW, WEIGHT_LABEL[matchWeightKey(c.chargeW)]||'', r.ratePrice!=null?r.ratePrice:'', r.rateAirline||'', r.outerPrice!=null?r.outerPrice:'', r.outerSupplier||'', r.customerPrice!=null?r.customerPrice:'', r.customer||'', (r.remark||'').replace(/\n/g,' ')].map(csvEsc).join(',');
   });
   const inqHeader = ['日期','目的港','件数','毛重kg','体积m³','计费重kg','重量档','表价¥/kg','表价航司','外配成本¥/kg','外配供应商','卖价¥/kg','客户','备注'].join(',');
   const inqCsv = inqHeader + '\n' + inqRows.join('\n');
@@ -2641,10 +2778,10 @@ $('btnExportCSV').addEventListener('click', () => {
     const exp = s.expired ? '已过期' : (s.expiry ? '至'+s.expiry : '未设到期');
     (s.rows||[]).forEach(r => {
       const base = { airline:s.airline, date:s.date, expiry:exp, dest:(r.dest||'').trim() };
-      WEIGHT_KEYS.forEach(k => { if (r.prices && r.prices[k]!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], r.prices[k], '', ''].map(esc).join(',')); });
+      WEIGHT_KEYS.forEach(k => { if (r.prices && r.prices[k]!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], r.prices[k], '', ''].map(csvEsc).join(',')); });
       if (r.densityPrices) Object.keys(r.densityPrices).forEach(dk => {
         const dl = DENSITY_LABEL[dk] || dk;
-        WEIGHT_KEYS.forEach(k => { const v = r.densityPrices[dk][k]; if (v!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], v, '比重', dl].map(esc).join(',')); });
+        WEIGHT_KEYS.forEach(k => { const v = r.densityPrices[dk][k]; if (v!=null) rateRows.push([...Object.values(base), WEIGHT_LABEL[k], v, '比重', dl].map(csvEsc).join(',')); });
       });
     });
   });
@@ -4144,20 +4281,23 @@ let parsedRows = null; // 预览缓存
 // ExcelJS 懒加载：首屏不加载 900KB，点导入时才拉
 function ensureExcelJS() {
   if (window.ExcelJS) return Promise.resolve();
-  return new Promise((resolve, reject) => {
+  // 单源 8 秒超时：jsDelivr 失败/超时 → cdnjs；都失败给出可操作提示
+  const load = (url, ms) => new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://fastly.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
-    s.onload = () => resolve();
-    s.onerror = () => {
-      // jsDelivr 失败 fallback cdnjs
-      const s2 = document.createElement('script');
-      s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
-      s2.onload = () => resolve();
-      s2.onerror = () => reject(new Error('ExcelJS 加载失败，请检查网络'));
-      document.head.appendChild(s2);
-    };
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true; s.onload = s.onerror = null; if (s.parentNode) s.parentNode.removeChild(s);
+      reject(new Error('加载超时'));
+    }, ms || 8000);
+    s.src = url;
+    s.onload = () => { if (settled) return; settled = true; clearTimeout(timer); resolve(); };
+    s.onerror = () => { if (settled) return; settled = true; clearTimeout(timer); reject(new Error('加载失败')); };
     document.head.appendChild(s);
   });
+  return load('https://fastly.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js', 8000)
+    .catch(() => load('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js', 8000))
+    .catch(() => { throw new Error('Excel 组件加载失败（8 秒超时），可改用「识别文字表价」粘贴导入'); });
 }
 
 $('btnImportExcel').addEventListener('click', async () => {
@@ -4371,22 +4511,22 @@ function rateRowHtml(s, inArchive) {
   const manuallyExpired = s.expired === true;              // 手动标记过期
   const isExpired = autoExpired || manuallyExpired;
   const expLabel = autoExpired
-    ? `<span class="tag tag-red">已到期 ${s.expiry}</span>`
+    ? `<span class="tag tag-red">已到期 ${esc(s.expiry)}</span>`
     : manuallyExpired
       ? `<span class="tag tag-red">已过期(手动)</span>`
-      : (s.expiry || '<span style="color:var(--text-3);font-size:12px">未设置</span>');
+      : (s.expiry ? esc(s.expiry) : '<span style="color:var(--text-3);font-size:12px">未设置</span>');
   // 未设到期日且未过期的，给"过期"按钮；已过期的给"恢复"；四个按钮一行
   let actBtns = `
       <div class="rate-actions" style="display:flex;justify-content:flex-end;gap:6px;white-space:nowrap">
-        <button class="btn btn-sm" data-id="${s.id}" data-act="view" style="flex:0 0 auto;white-space:nowrap;background:var(--primary-soft);color:var(--primary)">查看</button>
-        <button class="btn btn-sm" data-id="${s.id}" data-act="adj" style="flex:0 0 auto;white-space:nowrap;background:var(--accent-soft);color:var(--accent)">调价</button>
-        <button class="btn btn-sm" data-id="${s.id}" data-act="${isExpired?'restore':'expire'}" style="flex:0 0 auto;white-space:nowrap;${isExpired?'background:var(--green-soft);color:var(--green)':'background:var(--red-soft);color:var(--red)'}">${isExpired?'恢复':'过期'}</button>
-        <button class="btn btn-sm" data-id="${s.id}" data-act="del" style="flex:0 0 auto;white-space:nowrap;background:var(--red);color:#fff">删除</button>
+        <button class="btn btn-sm" data-id="${esc(s.id)}" data-act="view" style="flex:0 0 auto;white-space:nowrap;background:var(--primary-soft);color:var(--primary)">查看</button>
+        <button class="btn btn-sm" data-id="${esc(s.id)}" data-act="adj" style="flex:0 0 auto;white-space:nowrap;background:var(--accent-soft);color:var(--accent)">调价</button>
+        <button class="btn btn-sm" data-id="${esc(s.id)}" data-act="${isExpired?'restore':'expire'}" style="flex:0 0 auto;white-space:nowrap;${isExpired?'background:var(--green-soft);color:var(--green)':'background:var(--red-soft);color:var(--red)'}">${isExpired?'恢复':'过期'}</button>
+        <button class="btn btn-sm" data-id="${esc(s.id)}" data-act="del" style="flex:0 0 auto;white-space:nowrap;background:var(--red);color:#fff">删除</button>
       </div>`;
   return `
     <tr style="${isExpired && !inArchive ? 'opacity:.55' : ''}">
       <td data-label="航司"><b>${esc(s.airline)}</b>${s.transit?`<span style="display:block;font-size:11px;color:var(--accent)">${esc(s.transit)}</span>`:''} ${adjTag}${isExpired&&!inArchive?'<span style="display:block;color:var(--red);font-size:11px">已过期</span>':''}</td>
-      <td data-label="生效日">${s.date}</td>
+      <td data-label="生效日">${esc(s.date)}</td>
       <td data-label="到期日">${expLabel}</td>
       <td data-label="操作">${actBtns}</td>
     </tr>`;
@@ -4806,8 +4946,14 @@ $('btnQuickSearch').addEventListener('click', () => {
     found = true;
     const adj = currentAdjFor(s.airline, s.transit);
     let part = '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
-    part += '<b>' + s.airline + '</b> ' + s.date;
+    part += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
+    part += '<div><b>' + esc(s.airline) + '</b> ' + esc(s.date);
+    if (s.transit) part += ' <span style="color:var(--accent);font-size:12px">' + esc(s.transit) + '</span>';
     if (adj !== 0) part += ' <span style="color:var(--accent)">(调价' + (adj > 0 ? '+' : '') + adj + ')</span>';
+    part += '</div>';
+    // 直接跳到这张表价详情，省得回下方折叠列表里翻找
+    part += '<button class="btn btn-ghost btn-sm quick-open-rate" data-open-rate="' + esc(s.id) + '" style="padding:3px 10px;font-size:12px">查看原表</button>';
+    part += '</div>';
     rows.forEach(r => {
       part += rowPrices(r.prices, '标准', adj);
       const dp = r.densityPrices || {};
@@ -4818,9 +4964,12 @@ $('btnQuickSearch').addEventListener('click', () => {
     part += '</div>';
     html += part;
   });
-  if (!found && !info) html += '<div class="empty">表价库里没有 ' + dest + '</div>';
+  if (!found && !info) html += '<div class="empty">表价库里没有 ' + esc(dest) + '</div>';
   else if (!found && info) html += '<div style="margin-top:8px"><div class="empty">该目的港暂无匹配表价</div></div>';
   box.innerHTML = html;
+  box.querySelectorAll('.quick-open-rate').forEach(btn => {
+    btn.addEventListener('click', () => openRateDetail(btn.dataset.openRate));
+  });
 });
 
 // ---------- 统配表价文字解析（托盘/散货 × 服务等级 × 重泡比重） ----------
@@ -5643,7 +5792,7 @@ function openRateDetail(id) {
     </div>`;
   }
   if (prev) {
-    html += `<div style="background:var(--bg-soft,#f5f7fa);padding:8px 14px;border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--text-2)">与上一版（${prev.airline} ${prev.date}）对比：涨跌已标注</div>`;
+    html += `<div style="background:var(--bg-soft,#f5f7fa);padding:8px 14px;border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--text-2)">与上一版（${esc(prev.airline)} ${esc(prev.date)}）对比：涨跌已标注</div>`;
   }
   if (s.image) {
     html += `<div style="margin-bottom:12px"><img src="${s.image}" style="max-width:100%;border:1px solid var(--border);border-radius:6px"></div>`;
@@ -5657,7 +5806,7 @@ function openRateDetail(id) {
       const vKeys = s.rows[0].variants ? Object.keys(s.rows[0].variants) : [];
       const cols = [mainService, ...vKeys];
       html += '<div style="overflow-x:auto"><table style="table-layout:auto"><thead><tr><th>目的港</th><th>比重</th>' +
-        cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+        cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead><tbody>';
       s.rows.forEach(r => {
         if (!r.densityPrices) return;
         // 比重档取所有段（主价+各参考）的并集，按 泡档(max 升序) → 平档 → 重档(min 升序) 排序
@@ -5692,7 +5841,7 @@ function openRateDetail(id) {
               else if (d < 0) mainHtml += ` <small style="color:var(--green);font-weight:600">↓${-d}</small>`;
             }
           }
-          let rh = `<tr><td><b>${r.dest}</b></td><td>${DENSITY_LABEL[dk]||dk}</td>` +
+          let rh = `<tr><td><b>${esc(r.dest)}</b></td><td>${DENSITY_LABEL[dk]||dk}</td>` +
             `<td style="font-weight:600">${mainHtml}</td>`;
           vKeys.forEach(lb => {
             const v = variantOf(lb, dk);
@@ -5740,12 +5889,12 @@ function openRateDetail(id) {
         const mainPrices = hasFlat ? dp['flat'] : r.prices;
         const span = (showMain ? 1 : 0) + densityKeys.length;
         if (showMain) {
-          html += `<tr><td rowspan="${span}"><b>${r.dest}</b></td><td>${mainLabel}</td>`;
+          html += `<tr><td rowspan="${span}"><b>${esc(r.dest)}</b></td><td>${mainLabel}</td>`;
           weightKeys.forEach(k => html += cell(mainPrices ? mainPrices[k] : undefined, k, r.dest, hasFlat ? 'flat' : null));
           html += `</tr>`;
         }
         densityKeys.forEach(dk => {
-          html += `<tr>${!showMain ? `<td rowspan="${span}"><b>${r.dest}</b></td>` : ''}<td>${DENSITY_LABEL[dk]||dk}</td>`;
+          html += `<tr>${!showMain ? `<td rowspan="${span}"><b>${esc(r.dest)}</b></td>` : ''}<td>${DENSITY_LABEL[dk]||dk}</td>`;
           weightKeys.forEach(k => html += cell(dp[dk][k], k, r.dest, dk));
           html += `</tr>`;
         });
@@ -5770,11 +5919,13 @@ function ccRefresh() {
   const rmb = parseFloat($('ccRmb').value) || 0;
   const targetUsd = parseFloat($('ccTargetUsd').value) || 0;
 
-  if (vol <= 0) {
+  if (vol <= 0 && gw <= 0) {
     ['ccCW','ccRatio','ccCostW','ccUsd','ccRmbAfter','ccUsdAfter','ccTargetRmb','ccTotalRmb','ccTotalUsd'].forEach(id => $(id).textContent = '-');
     return;
   }
-  const cw = vol / div;
+  // 只报毛重（无体积）时按重货直算：体积重记 0，计费重取毛重
+  const volW = vol > 0 ? vol / div : 0;
+  const cw = Math.max(gw, volW);
   const costW = gw > 0 ? gw + (cw - gw) * bubble : cw;
   $('ccCW').textContent = cw.toFixed(2);
   $('ccRatio').textContent = vol > 0 ? (gw / vol).toFixed(4) : '-';
@@ -5871,10 +6022,8 @@ $('syncBackend').addEventListener('change', () => {
   updateSyncStatus();
 });
 
-function _escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
+// 历史命名保留：与 esc 同一实现，新代码统一用 esc()
+function _escHtml(s) { return esc(s); }
 
 function updateSyncStatus() {
   const cfg = getSyncConfig();
@@ -5883,8 +6032,12 @@ function updateSyncStatus() {
   const host = (mode === 'custom')
     ? (($('syncWorkerUrl').value || '').trim().replace(/^https?:\/\//, '') || '未填写')
     : (cfg.workerUrl || '').replace(/^https?:\/\//, '');
+  // 状态圆点：绿=最近一次推送成功，黄=有推送失败（数据仍在本机）
+  const dot = (window.__syncState === 'fail')
+    ? '<span style="color:#F59E0B;font-weight:700">●</span> 未同步 · '
+    : (window.__syncState === 'ok' ? '<span style="color:#10B981;font-weight:700">●</span> ' : '');
   $('syncStatus').innerHTML = cfg.username && cfg.password
-    ? '已登录：<b>' + _escHtml(cfg.username) + '</b> · 云端：' + _escHtml(host)
+    ? dot + '已登录：<b>' + _escHtml(cfg.username) + '</b> · 云端：' + _escHtml(host)
     : '未登录：当前纯本地存储 · 云端：' + _escHtml(host);
 }
 
@@ -5923,46 +6076,203 @@ function mergeById(localArr, cloudArr) {
   return Array.from(map.values());
 }
 
-$('btnCloudSync').addEventListener('click', async () => {
-  if ($('syncBackend').value === 'local') { toast('当前为本地模式，未启用云端同步'); return; }
-  toast('正在云端双向同步...');
-  const [inq, rates, adjs] = await Promise.all([
-    syncFromCloud('/api/inquiries'),
-    syncFromCloud('/api/rates'),
-    syncFromCloud('/api/adjustments')
-  ]);
-  // 用 Raw（含 deleted 墓碑）做 LWW 合并；save* 会自动过滤 active 并保留墓碑
-  const mInq = mergeById(loadAllRaw(), inq.data);
-  const mRates = mergeById(loadRatesRaw(), rates.data);
-  const mAdjs = mergeById(loadAdjsRaw(), adjs.data);
-  // 同步后自动过期：同一航司+中转点只保留最新生效日的表价（只对 active 生效）
-  const mRatesActive = mRates.filter(x => !x.deleted);
-  const syncExpiredCount = autoExpireRates(mRatesActive);
-  // autoExpireRates 可能改了 mRatesActive（标 expired），同步回 mRates 对应项
-  mRatesActive.forEach(a => { const i = mRates.findIndex(x => x.id === a.id); if (i >= 0) mRates[i] = a; });
-  saveAll(mInq.filter(x => !x.deleted)); renderList();
-  saveRates(mRates.filter(x => !x.deleted)); renderRateList();
-  saveAdjs(mAdjs.filter(x => !x.deleted)); renderAdjList();
-  // 回写云端（含墓碑，让其他设备也知道删除）
-  const push = await Promise.all([
-    syncToCloud('/api/inquiries', mInq),
-    syncToCloud('/api/rates', mRates),
-    syncToCloud('/api/adjustments', mAdjs)
-  ]);
-  const label = ['报价记录', '表价', '调价'];
-  const pullFail = [inq, rates, adjs].map((x, i) => x.ok ? null : label[i]).filter(Boolean);
-  const pushFail = label.filter((n, i) => !push[i]);
-  if (pullFail.length || pushFail.length) {
-    toast('同步未完全成功：拉取失败[' + (pullFail.join('、') || '无') + '] 推送失败[' + (pushFail.join('、') || '无') + ']');
-  } else {
-    toast('云端双向同步完成：本机与云端均为最新完整数据');
+// 双向同步（拉取合并 → 回写）。silent=true 用于打开页面时的静默拉取：不弹成功提示，失败只标黄点
+let _syncInFlight = false;
+let _lastSyncAt = 0;
+async function cloudSyncAll(silent) {
+  if (_syncInFlight) { if (!silent) toast('正在同步中，请稍候…'); return false; }
+  if ($('syncBackend').value === 'local') { if (!silent) toast('当前为本地模式，未启用云端同步'); return false; }
+  const cfg = getSyncConfig();
+  if (!cfg.username || !cfg.password) { if (!silent) toast('请先填写云端账号'); return false; }
+  _syncInFlight = true;
+  try {
+    if (!silent) toast('正在云端双向同步...');
+    const [inq, rates, adjs] = await Promise.all([
+      syncFromCloud('/api/inquiries'),
+      syncFromCloud('/api/rates'),
+      syncFromCloud('/api/adjustments')
+    ]);
+    // 云端返回 200 但内容为空：可能是新账号或后端异常，只记日志不阻断（本地数据稍后会回写补齐）
+    const emptyCloud = ['报价记录', '表价', '调价'].filter((n, i) => {
+      const r = [inq, rates, adjs][i];
+      return r.ok && Array.isArray(r.data) && r.data.length === 0;
+    });
+    if (emptyCloud.length) console.warn('云端接口返回空数组（本地数据将回写补齐）：' + emptyCloud.join('、'));
+    // 用 Raw（含 deleted 墓碑）做 LWW 合并；save* 会自动过滤 active 并保留墓碑
+    const mInq = mergeById(loadAllRaw(), inq.data);
+    const mRates = mergeById(loadRatesRaw(), rates.data);
+    const mAdjs = mergeById(loadAdjsRaw(), adjs.data);
+    // 同步后自动过期：同一航司+中转点只保留最新生效日的表价（只对 active 生效）
+    const mRatesActive = mRates.filter(x => !x.deleted);
+    const syncExpiredCount = autoExpireRates(mRatesActive);
+    // autoExpireRates 可能改了 mRatesActive（标 expired），同步回 mRates 对应项
+    mRatesActive.forEach(a => { const i = mRates.findIndex(x => x.id === a.id); if (i >= 0) mRates[i] = a; });
+    // 三份数据统一回写：同步期内抑制 save 自带推送，避免每个 store 各推一次（请求量减半）
+    [inqStore, rateStore, adjStore].forEach(s => s.setPushSuppressed && s.setPushSuppressed(1));
+    try {
+      saveAll(mInq.filter(x => !x.deleted)); renderList();
+      saveRates(mRates.filter(x => !x.deleted)); renderRateList();
+      saveAdjs(mAdjs.filter(x => !x.deleted)); renderAdjList();
+    } finally {
+      [inqStore, rateStore, adjStore].forEach(s => s.setPushSuppressed && s.setPushSuppressed(0));
+    }
+    // 回写云端（含墓碑，让其他设备也知道删除）
+    const push = await Promise.all([
+      syncToCloud('/api/inquiries', mInq),
+      syncToCloud('/api/rates', mRates),
+      syncToCloud('/api/adjustments', mAdjs)
+    ]);
+    const label = ['报价记录', '表价', '调价'];
+    const pullFail = [inq, rates, adjs].map((x, i) => x.ok ? null : label[i]).filter(Boolean);
+    const pushFail = label.filter((n, i) => !push[i]);
+    if (pullFail.length || pushFail.length) {
+      markSyncFail(pullFail.length ? '拉取失败' : '推送失败');
+      if (!silent) toast('同步未完全成功：拉取失败[' + (pullFail.join('、') || '无') + '] 推送失败[' + (pushFail.join('、') || '无') + ']');
+      return false;
+    }
+    markSyncOk();
+    if (!silent) toast('云端双向同步完成：本机与云端均为最新完整数据');
+    return true;
+  } finally {
+    _syncInFlight = false;
+    _lastSyncAt = Date.now();
+    if (typeof updateRetentionStatus === 'function') updateRetentionStatus();
   }
+}
+$('btnCloudSync').addEventListener('click', () => cloudSyncAll(false));
+
+// 顶部刷新：已登录云端时先做一次双向同步（手机端/PWA 点一下就是最新表价），未登录或同步失败才整页重载
+window.doReload = function () { location.reload(); };
+$('btnRefresh').addEventListener('click', async () => {
+  const btn = $('btnRefresh');
+  if (btn.dataset.busy) return;
+  const cfg = getSyncConfig();
+  const cloudReady = $('syncBackend').value !== 'local' && cfg.username && cfg.password;
+  if (!cloudReady) { window.doReload(); return; }
+  btn.dataset.busy = '1';
+  btn.classList.add('is-syncing');
+  let okSync = false;
+  try { okSync = (await cloudSyncAll(false)) !== false; } catch (e) { okSync = false; }
+  btn.classList.remove('is-syncing');
+  if (btn) delete btn.dataset.busy;
+  // 同步失败才重载；若是别处同步正在进行（返回 false 但锁未释放），保持当前页不打断
+  if (!okSync && !_syncInFlight) window.doReload();
 });
+
+// ---------- 数据保留策略（默认不清理；可选保留 1 年 / 2 年）----------
+const RETENTION_KEY = 'af_retention_years';
+const STORAGE_CAP_CHARS = 2621440;  // 5MB 配额按 UTF-16 折算约 262 万字符
+function getRetentionYears() {
+  const raw = localStorage.getItem(RETENTION_KEY);
+  if (raw == null || raw === '') return 0;      // 默认不自动清理
+  const v = parseInt(raw, 10);
+  return (v === 1 || v === 2) ? v : 0;          // 只允许 1/2 年，其他值一律视为不清理
+}
+function retentionCutoff(years) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - years * 12);
+  return fmtLocalDate(d);
+}
+function storageUsedChars() {
+  let n = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (localStorage.getItem(k) || '').length; } } catch (e) {}
+  return n;
+}
+function updateRetentionStatus() {
+  const years = getRetentionYears();
+  const used = storageUsedChars();
+  const pct = (used / STORAGE_CAP_CHARS * 100).toFixed(1);
+  const rates = loadRates();
+  const expired = rates.filter(s => rateIsExpired(s)).length;
+  $('retentionStatus').innerHTML =
+    '占用 <b>' + used.toLocaleString() + '</b> 字符（约 ' + pct + '%）· 有效表价 <b>' + (rates.length - expired) + '</b> 张 / 过期 <b>' + expired + '</b> 张 / 询价 <b>' + loadAll().length + '</b> 条' +
+    (years ? ' · 清理 ' + retentionCutoff(years) + ' 之前的' : ' · 不自动清理');
+}
+// 只清理「已过期表价」和超期询价；有效表价永不参与。删除走墓碑，云端其他设备同步后一起消失
+function runRetention(showToast) {
+  const years = getRetentionYears();
+  if (!years) { if (showToast) toast('当前设置为不自动清理'); return { rates: 0, inqs: 0 }; }
+  const cut = retentionCutoff(years);
+  const rateIds = loadRates().filter(s => rateIsExpired(s) && s.date && s.date < cut).map(s => s.id);
+  const inqIds = loadAll().filter(r => r.date && r.date < cut).map(r => r.id);
+  if (rateIds.length) { rateStore.batchTombstone(rateIds); renderRateList(); }
+  if (inqIds.length) { inqStore.batchTombstone(inqIds); renderList(); }
+  updateRetentionStatus();
+  if (rateIds.length || inqIds.length) {
+    toast('已按 ' + years + ' 年保留期清理：过期表价 ' + rateIds.length + ' 张、询价 ' + inqIds.length + ' 条');
+  } else if (showToast) {
+    toast('没有超过 ' + years + ' 年的数据需要清理');
+  }
+  return { rates: rateIds.length, inqs: inqIds.length };
+}
+$('retentionYears').value = String(getRetentionYears());
+$('retentionYears').addEventListener('change', () => {
+  const raw = parseInt($('retentionYears').value, 10);
+  const v = (raw === 1 || raw === 2) ? raw : 0;
+  try { localStorage.setItem(RETENTION_KEY, String(v)); } catch (e) {}
+  updateRetentionStatus();
+  toast(v ? '已设为保留 ' + v + ' 年，点「立即清理」可立刻执行' : '已关闭自动清理');
+});
+$('btnRunRetention').addEventListener('click', () => runRetention(true));
+
+// 历史询价原文一次性清理：只保留价格字段，释放 30–40% 空间（新询价已不再写入）
+(function purgeHistoryRawText() {
+  try {
+    if (localStorage.getItem('af_raw_text_purged') === '1') return;
+    const raw = loadAllRaw();
+    let n = 0, chars = 0;
+    raw.forEach(x => { if (x.raw_text) { chars += String(x.raw_text).length; x.raw_text = ''; n++; } });
+    if (n) inqStore.save(raw.filter(x => !x.deleted));
+    localStorage.setItem('af_raw_text_purged', '1');
+    if (n) { console.log('已清理历史询价原文 ' + n + ' 条（' + chars + ' 字符）'); toast('已清理 ' + n + ' 条历史询价原文，释放约 ' + chars + ' 字符'); }
+  } catch (e) { console.log('清理原文失败:', e); }
+})();
 
 // 初始化
 $('fDate').value = todayStr();
+updateRetentionStatus();
 renderList();
 renderAdjList();
+
+// 快捷键：Ctrl/Cmd+Enter 直接解析粘贴文本；快速查询框回车直接查
+$('rawText').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); $('btnParse').click(); }
+});
+$('pastedRate').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); $('btnParsePasted').click(); }
+});
+$('quickDest').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('btnQuickSearch').click(); }
+});
+
+// 打开页面即静默拉一次云端（已登录且非本地模式）：多设备换机直接看到最新数据
+(function autoPullOnce() {
+  const cfg = getSyncConfig();
+  if (cfg.mode === 'local' || !cfg.workerUrl || !cfg.username || !cfg.password) return;
+  setTimeout(() => { cloudSyncAll(true); }, 900);
+})();
+
+// 拉取之后再跑保留期清理（放在后面，避免刚同步下来的历史数据被立刻删掉）
+setTimeout(() => { try { runRetention(false); } catch (e) { console.log('自动清理失败:', e); } }, 1600);
+
+// 切回前台（手机端/微信内置浏览器常挂在后台）超过 2 分钟，静默拉一次，避免看到过期数据
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (Date.now() - (_lastSyncAt || 0) < 120000) return;
+  const cfg = getSyncConfig();
+  if (cfg.mode === 'local' || !cfg.workerUrl || !cfg.username || !cfg.password) return;
+  cloudSyncAll(true);
+});
+
+// 多标签页联动：另一页改了本地数据，本页缓存失效并重绘（storage 事件只在“别的页面”写入时触发）
+window.addEventListener('storage', e => {
+  if (!e.key) return;
+  if (e.key === RATE_KEY) { rateStore.invalidate(); renderRateList(); }
+  else if (e.key === STORE_KEY) { inqStore.invalidate(); renderList(); }
+  else if (e.key === ADJ_KEY) { adjStore.invalidate(); renderAdjList(); renderRateList(); try { updateRateMatch(); } catch (err) {} }
+  else if (e.key === SYNC_KEY) { updateSyncStatus(); return; }
+  if (typeof updateRetentionStatus === 'function') updateRetentionStatus();
+});
 </script>
 
 </body></html>
