@@ -441,6 +441,25 @@
   }
   .expired-toggle b { color: var(--red); font-weight: 600; }
   .expired-toggle:hover { background: var(--bg); }
+  /* 已导入表价折叠条：默认收起，点击才展开列表 */
+  .rate-list-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 14px 16px;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .rate-list-toggle:hover { background: var(--bg); }
+  .rate-list-toggle b { color: var(--primary); font-weight: 600; }
   .expired-group-head {
     display: flex;
     align-items: center;
@@ -610,30 +629,35 @@
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
-    <div class="card-title rate-tabs-title" style="padding:14px 16px 0">
-      <span class="title-text">已导入表价</span>
-      <button class="btn btn-sm btn-primary rate-cat-tab tab-all" data-cat="all">全部</button>
-      <div id="rateCategoryTabs" style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="aa">AA</button>
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="dl">DL</button>
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="lh">LH</button>
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="uc">UC</button>
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="unified">统配</button>
-        <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="other">其他</button>
+    <button type="button" id="rateListToggle" class="rate-list-toggle">
+      <span>已导入表价 <b id="rateListCount">0</b> 张</span>
+      <span id="rateListArrow">展开</span>
+    </button>
+    <div id="rateListWrap" style="display:none">
+      <div class="rate-tabs-title" id="rateCategoryRow" style="padding:0 16px 12px">
+        <button class="btn btn-sm btn-primary rate-cat-tab tab-all" data-cat="all">全部</button>
+        <div id="rateCategoryTabs" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="aa">AA</button>
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="dl">DL</button>
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="lh">LH</button>
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="uc">UC</button>
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="unified">统配</button>
+          <button class="btn btn-sm btn-ghost rate-cat-tab" data-cat="other">其他</button>
+        </div>
       </div>
+      <table class="mobile-cards">
+        <thead>
+          <tr>
+            <th style="width:80px">航司</th>
+            <th style="width:110px">生效日</th>
+            <th style="width:110px">到期日</th>
+            <th style="width:250px"></th>
+          </tr>
+        </thead>
+        <tbody id="rateListBody"></tbody>
+      </table>
+      <div class="empty" id="rateListEmpty">还没有导入表价</div>
     </div>
-    <table class="mobile-cards">
-      <thead>
-        <tr>
-          <th style="width:80px">航司</th>
-          <th style="width:110px">生效日</th>
-          <th style="width:110px">到期日</th>
-          <th style="width:250px"></th>
-        </tr>
-      </thead>
-      <tbody id="rateListBody"></tbody>
-    </table>
-    <div class="empty" id="rateListEmpty">还没有导入表价</div>
     <div id="expiredRateBox" style="display:none">
       <button type="button" id="expiredRateToggle" class="expired-toggle">
         <span>已过期表价 <b id="expiredRateCount">0</b> 张（按航司归档）</span>
@@ -4455,6 +4479,14 @@ function dedupeExpiredRates() {
   dup.forEach(id => tombstoneRate(id));
   return dup.length;
 }
+let _rateListOpen = false;
+function applyRateListFold() {
+  const wrap = $('rateListWrap');
+  if (wrap) wrap.style.display = _rateListOpen ? 'block' : 'none';
+  const arrow = $('rateListArrow');
+  if (arrow) arrow.textContent = _rateListOpen ? '收起' : '展开';
+}
+$('rateListToggle').addEventListener('click', () => { _rateListOpen = !_rateListOpen; applyRateListFold(); });
 function renderRateList() {
   const removedDup = dedupeExpiredRates();
   if (removedDup) toast(`已清理 ${removedDup} 张重复的过期表价`);
@@ -4464,6 +4496,7 @@ function renderRateList() {
   const expired = filtered.filter(rateIsExpired);
   const tbody = $('rateListBody');
   const emptyEl = $('rateListEmpty');
+  if ($('rateListCount')) $('rateListCount').textContent = active.length;
   tbody.innerHTML = active.map(s => rateRowHtml(s, false)).join('');
   if (active.length) {
     emptyEl.style.display = 'none';
