@@ -303,6 +303,22 @@
   /* 报价记录操作列按钮：四个字不折行 */
   #listBody td[data-label="操作"] button { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
 
+  /* ---------- 询价详情：货量块 / 价目块 ---------- */
+  .qty-info { background: var(--bg); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; font-size: 13.5px; }
+  .qty-line { display: flex; flex-wrap: wrap; align-items: center; column-gap: 20px; row-gap: 4px; line-height: 1.6; }
+  .qty-line.calc { color: var(--primary); margin-top: 2px; }
+  .qty-actions { margin-top: 8px; }
+  .btn-mini { font-size: 12px; padding: 3px 10px; line-height: 1.5; height: auto; white-space: nowrap; }
+  .price-box { margin-top: 10px; padding: 10px; background: var(--bg); border-radius: 6px; }
+  .price-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .price-label { font-weight: 600; flex: 0 0 60px; width: 60px; white-space: nowrap; }
+  .price-meta { color: var(--text-3); font-size: 12px; }
+  .price-input { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; }
+  .price-input.supplier { width: 120px; }
+  .price-input.num { width: 140px; }
+  .price-edit { margin-top: 8px; }
+  #qtyEditBox label { white-space: nowrap; }
+
   /* ============ 移动端适配（≤720px，iPhone 12 / 12 Pro Max）============ */
   @media (max-width: 720px) {
     /* --- 顶部导航：两行（brand 一行，tabs 横滑一行）--- */
@@ -416,6 +432,15 @@
     tbody.inq-compact td[data-label="外配"],
     tbody.inq-compact td[data-label="卖价"] { display: none; }
     tbody.inq-compact tr:active { background: #f7f8fa; }
+    /* 询价详情：货量行距收紧；外配/卖价标签独占第一行，两输入框+保存按钮落第二行 */
+    .qty-info { padding: 10px 12px; margin-bottom: 12px; }
+    .qty-line { column-gap: 14px; row-gap: 2px; font-size: 13px; line-height: 1.55; }
+    .qty-actions { margin-top: 6px; }
+    .price-box { padding: 10px 12px; }
+    .price-row { gap: 6px 8px; }
+    .price-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; row-gap: 6px; }
+    .price-edit .price-label { grid-column: 1 / -1; width: auto; flex: none; }
+    .price-edit .price-input { width: auto; min-width: 0; box-sizing: border-box; }
     /* 日期框：去掉原生外观差，与文本框同高同宽，日历图标保留 */
     input[type=date] { -webkit-appearance: none; appearance: none; min-height: 0; height: 41px; box-sizing: border-box; }
     /* --- 成本计算：table 转纵向，label 在上、输入在下 --- */
@@ -2586,21 +2611,21 @@ function openDetail(id) {
   const c = calc(r.weight, r.volume);
   $('modalTitle').textContent = `${r.dest} · ${r.date}${r.customer?(' · '+r.customer):''}`;
   $('modalBody').innerHTML = `
-    <div style="background:var(--bg);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:13.5px">
-      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
+    <div class="qty-info">
+      <div class="qty-line">
         <span>件数 <b>${esc(r.pieces||'-')}</b></span>
         <span>毛重 <b>${fmtNum(c.weight,1)} kg</b></span>
         <span>体积 <b>${fmtNum(c.volume,2)} CBM</b></span>
         <span>尺寸 <b>${esc(r.dims||'-')}</b></span>
-        <button class="btn btn-ghost btn-sm" id="btnEditQty" style="margin-left:auto;padding:3px 10px;font-size:12px">修改货量</button>
       </div>
-      <div style="display:flex;gap:20px;flex-wrap:wrap;color:var(--primary)">
+      <div class="qty-line calc">
         <span>体积重 ${fmtNum(c.volW,1)}kg</span>
         <span>计费重 <b>${fmtNum(c.chargeW,1)}kg</b></span>
         <span>泡重比 <b>1:${fmtNum(c.ratio,0)}</b></span>
       </div>
       ${r.remark?('<div style="margin-top:6px;color:var(--text-2)">备注：'+esc(stripMainPriceNote(r.remark))+'</div>'):''}
       ${r.raw_text?('<div style="margin-top:6px;color:var(--text-3);font-size:12px;white-space:pre-wrap;word-break:break-all">原文：'+esc(r.raw_text)+'</div>'):''}
+      <div class="qty-actions"><button class="btn btn-ghost btn-sm btn-mini" id="btnEditQty">修改数据</button></div>
       <div id="qtyEditBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
         <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px">
           <label style="display:flex;align-items:center;gap:4px">目的港 <input id="qeDest" value="${esc(r.dest||'')}" style="width:78px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;text-transform:uppercase;font-size:12.5px"></label>
@@ -2618,24 +2643,24 @@ function openDetail(id) {
       </div>
     </div>
 
-    <div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:6px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-weight:600;width:60px">表价</span>
+    <div class="price-box">
+      <div class="price-row">
+        <span class="price-label">表价</span>
         <span style="color:var(--green);font-size:16px">${r.ratePrice?('¥'+fmtNum(r.ratePrice,2)+' /kg'):'-'}</span>
-        ${r.rateAirline?`<span style="color:var(--text-3);font-size:12px">${esc(r.rateAirline)}${r.rateTransit?(' · '+esc(r.rateTransit)):''}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}${r.rateDate?(' · '+esc(r.rateDate)):''}</span>`:''}
-        <button class="btn btn-ghost btn-sm" id="btnReMatchRate" title="用当前已导入表价重新匹配此票">更新</button>
+        ${r.rateAirline?`<span class="price-meta">${esc(r.rateAirline)}${r.rateTransit?(' · '+esc(r.rateTransit)):''}${r.rateDensity?(' · '+DENSITY_LABEL[r.rateDensity]):''}${r.rateDate?(' · '+esc(r.rateDate)):''}</span>`:''}
+        <button class="btn btn-ghost btn-sm btn-mini" id="btnReMatchRate" title="用当前已导入表价重新匹配此票">更新</button>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-        <span style="font-weight:600;width:60px">外配</span>
-        <input id="fOuterSupplier" type="text" value="${esc(r.outerSupplier||'')}" placeholder="供应商名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
-        <input id="fOuterPrice" type="number" step="0.1" value="${r.outerPrice||''}" placeholder="成本 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
-        <button class="btn btn-ghost btn-sm" id="btnSaveOuter">保存</button>
+      <div class="price-row price-edit">
+        <span class="price-label">外配</span>
+        <input id="fOuterSupplier" class="price-input supplier" type="text" value="${esc(r.outerSupplier||'')}" placeholder="供应商名称">
+        <input id="fOuterPrice" class="price-input num" type="number" step="0.1" value="${r.outerPrice||''}" placeholder="成本 ¥/kg">
+        <button class="btn btn-ghost btn-sm btn-mini" id="btnSaveOuter">保存</button>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-        <span style="font-weight:600;width:60px">卖价</span>
-        <input id="fCustomerName" type="text" value="${esc(r.customer||'')}" placeholder="客户名称" style="width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
-        <input id="fCustomerPrice" type="number" step="0.1" value="${r.customerPrice||''}" placeholder="卖价 ¥/kg" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:4px">
-        <button class="btn btn-ghost btn-sm" id="btnSaveCustPrice">保存</button>
+      <div class="price-row price-edit">
+        <span class="price-label">卖价</span>
+        <input id="fCustomerName" class="price-input supplier" type="text" value="${esc(r.customer||'')}" placeholder="客户名称">
+        <input id="fCustomerPrice" class="price-input num" type="number" step="0.1" value="${r.customerPrice||''}" placeholder="卖价 ¥/kg">
+        <button class="btn btn-ghost btn-sm btn-mini" id="btnSaveCustPrice">保存</button>
       </div>
       ${r.ratePrice && r.customerPrice ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:13px">
         毛利：<b style="color:var(--primary)">¥${(r.customerPrice - Math.min(r.ratePrice, r.outerPrice||999)).toFixed(2)}/kg</b>
@@ -2906,21 +2931,40 @@ function renderStats() {
   `;
 }
 
+// AA 经HNL 目的港池（202611 AA HNL出发.pdf）
+// 值 = 价格归属：US 其他美国本土点 / MXCA 墨西哥·加拿大 / SA 南美直飞与联程
+// HNL 入口：LAX / PHX / ORD / DFW；各入口卡转点已并入对应分类
+// 南美点单列 SA，不参与"其他美国本土点"价（解析器另有 SKIP_HNL 跳过南美基准价）
+const AA_HNL_ZONE = {
+  'ATL':'US','BDL':'US','BOS':'US','BWI':'US','CLE':'US','CLT':'US','CMH':'US','CVG':'US','DTW':'US','EWR':'US',
+  'IAD':'US','ORD':'US','PHL':'US','PIT':'US','RDU':'US','MCO':'US','TPA':'US','DFW':'US','LAS':'US','MIA':'US',
+  'PHX':'US','SAN':'US','SEA':'US','SFO':'US','SLC':'US','ELP':'US','DEN':'US','IND':'US','JFK':'US','MCI':'US',
+  'MEM':'US','MKE':'US','MSP':'US','OMA':'US','SDF':'US','STL':'US','ABQ':'US','AUS':'US','LRD':'US','MFE':'US',
+  'MSY':'US','TUL':'US','BNA':'US','LAX':'US','IAH':'US',
+  'YUL':'MXCA','YYZ':'MXCA','MEX':'MXCA','GDL':'MXCA','MTY':'MXCA',
+  'EZE':'SA','GIG':'SA','GRU':'SA','SCL':'SA','MVD':'SA','ASU':'SA','LPB':'SA','VVI':'SA','BOG':'SA','SDQ':'SA',
+  'GUA':'SA','PTY':'SA','MDE':'SA','GYE':'SA','UIO':'SA','MGA':'SA','MAO':'SA','KIN':'SA','SJO':'SA','SJU':'SA',
+  'BZE':'SA','SAL':'SA','LIM':'SA','CLO':'SA','POS':'SA','STI':'SA','SAP':'SA','TGU':'SA','BAQ':'SA','BGI':'SA',
+};
 // AA128 中转加价区：美国全境+2；墨西哥/加拿大+7（MEX GDL MTY CUN；CUN仅限散货）
 const AA128_ZONE = {
   'ABQ':'US','ATL':'US','AUS':'US','BDL':'US','BNA':'US','BOS':'US','BWI':'US','CLE':'US','CLT':'US','CMH':'US','CVG':'US','DEN':'US','DFW':'US','DTW':'US','ELP':'US','EWR':'US','IAD':'US','IAH':'US','IND':'US','JFK':'US','LAS':'US','LAX':'US','LRD':'US','MCI':'US','MEM':'US','MFE':'US','MIA':'US','MKE':'US','MSY':'US','OMA':'US','ORD':'US','PHL':'US','PHX':'US','PIT':'US','RDU':'US','SAN':'US','SDF':'US','SEA':'US','SFO':'US','SLC':'US','STL':'US','TUL':'US','TPA':'US',
   'YUL':'MXCA','YYZ':'MXCA','MEX':'MXCA','GDL':'MXCA','MTY':'MXCA','CUN':'MXCA'
 };
-// DL 经HNL 目的港池（202610 DL HNL出发.pdf，含 不去: ANC BGI GOL MTY BZE KIN MOB）
+// DL 经HNL 目的港池（202611 DL HNL出发.pdf）
+// 值 = 价格归属：US 其他美国本土点 / CA 加拿大 / SA 中·南美（含加勒比）
+// 入口 ATL/DTW/JFK/LAX/MSP/SLC/SEA 归 US；其中 DTW/MSP/SLC/LAX 走表价首档，解析器单独处理
+// 不去（不入池）：ABQ ANC BGI GDL MTY BZE KIN MOB NAS
 const DL_DEST_POOL = {
-  // DL 主中转：ATL/DTW/JFK/LAX/MSP/SLC/SEA
-  'ATL':1,'DTW':1,'JFK':1,'LAX':1,'MSP':1,'SLC':1,'SEA':1,
-  // 美国卡转点（去重汇总）
-  'ABQ':1,'AUS':1,'BHM':1,'BNA':1,'BOS':1,'BWI':1,'CHS':1,'CLT':1,'CMH':1,'CVG':1,'DEN':1,'DFW':1,'ELP':1,'EWR':1,'GSO':1,'GSP':1,'IAD':1,'IAH':1,'IND':1,'JAX':1,'MCI':1,'MCO':1,'MEM':1,'MIA':1,'MKE':1,'MSY':1,'OKC':1,'ORD':1,'ORF':1,'PDX':1,'PHL':1,'PHX':1,'PIT':1,'RDU':1,'RIC':1,'SAN':1,'SAT':1,'SDF':1,'SFO':1,'STL':1,'TPA':1,'LAS':1,'CLE':1,'YVR':1,
-  // 加拿大
-  'YUL':1,'YYZ':1,
-  // 中/南美
-  'BOG':1,'EZE':1,'GIG':1,'GRU':1,'GUA':1,'LIM':1,'NAS':1,'PTY':1,'SAL':1,'SAP':1,'SCL':1,'SDQ':1,'SJO':1,'SJU':1,'UIO':1,'CUN':1,'MEX':1,'PUJ':1,'STI':1
+  'ATL':'US','AUS':'US','BHM':'US','BNA':'US','BOS':'US','BWI':'US','CHS':'US','CLE':'US','CLT':'US','CMH':'US',
+  'CVG':'US','DEN':'US','DFW':'US','DTW':'US','ELP':'US','EWR':'US','GSO':'US','GSP':'US','IAD':'US','IAH':'US',
+  'IND':'US','JAX':'US','JFK':'US','KOA':'US','LAS':'US','LAX':'US','MCI':'US','MCO':'US','MEM':'US','MIA':'US',
+  'MKE':'US','MSP':'US','MSY':'US','OKC':'US','OGG':'US','ORD':'US','ORF':'US','PDX':'US','PHL':'US','PHX':'US',
+  'PIT':'US','RDU':'US','RIC':'US','SAN':'US','SAT':'US','SEA':'US','SFO':'US','SLC':'US','STL':'US','TPA':'US',
+  'YUL':'CA','YYZ':'CA','YVR':'CA',
+  'BOG':'SA','CUN':'SA','EZE':'SA','GIG':'SA','GRU':'SA','GUA':'SA','LIM':'SA','MBJ':'SA','MEX':'SA','PTY':'SA',
+  'PUJ':'SA','PVR':'SA','SAL':'SA','SAP':'SA','SCL':'SA','SDQ':'SA','SJD':'SA','SJO':'SA','SJU':'SA','STI':'SA',
+  'UIO':'SA',
 };
 
 // JL 经YVR 加拿大目的港池：YVR直飞；YYT/YUL/YHZ/YYC/YYZ/YEG/YWG/YHM 卡车二程
@@ -5065,10 +5109,9 @@ function parseDLBareRate(text, rawText, ctx) {
     return { densityDef, densityPrices, variants: { '托盘': { densityPrices: tDP } }, service: '散货', remark, bare: true, gwRule: { t300: 200, tAll: 300 } };
   };
   const DLA = ['DTW','MSP','SLC','LAX'];
-  const DL_NON_US = ['YUL','YYZ','YVR','MEX','CUN','EZE','SCL','BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','PUJ','STI'];
-  const DLUS = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] && !DLA.includes(c) && !DL_NON_US.includes(c));
-  const DLCAN = ['YUL','YYZ'];
-  const DLSA = ['BOG','GIG','GRU','GUA','LIM','NAS','PTY','SAL','SAP','SDQ','SJO','SJU','UIO','CUN','MEX','PUJ','STI'];
+  const DLUS = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] === 'US' && !DLA.includes(c));
+  const DLCAN = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] === 'CA');
+  const DLSA = Object.keys(DL_DEST_POOL).filter(c => DL_DEST_POOL[c] === 'SA');
   const destList = [];
   DLA.forEach(c => destList.push([c, baseG['DTW/MSP/SLC/LAX'], add45NA]));
   DLUS.forEach(c => destList.push([c, baseG['其他美国本土点'], add45NA]));
@@ -5098,7 +5141,7 @@ function parseAAHnlRate(text, rawText, ctx) {
     const digit = +px[2];
     codes.forEach(c => { if (ports[c] === undefined) ports[c] = digit; });
   }
-  const USH = Object.keys(AA128_ZONE).filter(c => AA128_ZONE[c] === 'US');
+  const USH = Object.keys(AA_HNL_ZONE).filter(c => AA_HNL_ZONE[c] === 'US');
   const DFW1 = ['LAX', 'ORD', 'PHX'];
   const OTH_US = USH.filter(c => c !== 'DFW' && !DFW1.includes(c));
   const grpRe = /(DFW[＋+]\s*1段|其他北美点|其他美国本土点)\s*散?\s*[:：]?\s*(\d+)\s*\+{1,2}/gi;
