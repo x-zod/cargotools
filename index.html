@@ -5419,6 +5419,11 @@ function parseUnifiedMain(text, rawText, ctx) {
       .replace(/平货|小货/g, '').replace(/\d+/g, '').replace(/[：:，,\-−/\\K]/g, '').trim();
     segs.push({ label: prefixText ? `${prefixText}${m[1]}天` : `${m[1]}天`, start: m.index + m[0].length });
   }
+  // 无数字的服务标签（如 "直飞服务" / "空空服务" / "转飞服务"）：仅作分段，段内无托盘/散货价时会被 valid 过滤
+  const segWordRe = /(直飞|直航|空空|转飞|中转|空转)\s*服务/g;
+  while ((m = segWordRe.exec(text))) {
+    segs.push({ label: m[1], start: m.index + m[0].length });
+  }
   // 额外匹配 "价格下调/更新/调整/生效/开始" 等通用价格块标题（后面必须跟着托盘/散货价格）
   const genericRe = /价格(?:下调|更新|调整|生效|开始|上调)/gi;
   while ((m = genericRe.exec(text))) {
@@ -5654,6 +5659,7 @@ function detectRateMeta(text) {
   if (/传盛/.test(t)) m.airline = '传盛';
   else if (/5Y\s*\/\s*CA|5Y\/CA/.test(t)) m.airline = '5Y/CA';
   else if (/MU\s*\/\s*HO|MU\/HO/.test(t)) m.airline = 'MU/HO';
+  else if (/东航|东方航空/.test(t)) m.airline = 'MU';
   else if (/^AA\s*[:：]|AA经HNL|AA：/.test(t)) m.airline = 'AA';
   else if (/^DL\b|DL裸运费|DL：/.test(t)) m.airline = 'DL';
   else if (/LH\b|上海LH|汉莎/.test(t)) m.airline = 'LH';
@@ -5664,7 +5670,7 @@ function detectRateMeta(text) {
   if (m.airline === 'AA' && /美国本土点|DFW\+1段|标托/.test(t) && !/经HND|AA128|直飞DFW/.test(t)) m.transit = '经HNL';
   else if (m.airline === 'DL' && /裸运费|DTW\s*\/\s*MSP/.test(t)) m.transit = '经HNL';
   else if (/经HND|上海AA/.test(t)) m.transit = '经HND';
-  else if (/AA128|直飞DFW/.test(t)) m.transit = '直飞DFW';
+  else if (/AA128|直飞\s*DFW|DFW\s*方向/.test(t)) m.transit = '直飞DFW';
   return m;
 }
 // 从 Excel 文件名 / sheet 名自动推断航司代码（导入时自动填入航司输入框）
