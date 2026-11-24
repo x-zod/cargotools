@@ -1779,7 +1779,15 @@ function densityRuleNote(rule) {
 
 // 三级匹配取价：比重档当前档 → 比重档低重量档 → 标准重量档回退 → variants 散货补位。
 // 返回 {base, weightKey, density, srcLabel}；srcLabel 为④补位时的来源服务段（如"1-3天散货"）
-function priceFromRow(row, wk, effDk) {
+function priceFromRow(row, wk, effDk, weight) {
+  // 重量门槛分层（row.weightTiers，如平泡货 +100K/+300K）：按计费重选门槛层，覆盖主密度价与托盘变体
+  if (row && row.weightTiers && row.weightTiers.length && weight !== undefined && !isNaN(+weight)) {
+    let sel = row.weightTiers[0];
+    row.weightTiers.forEach(t => { if (+weight >= t.minKg && t.minKg >= sel.minKg) sel = t; });
+    const vs = Object.assign({}, row.variants || {});
+    Object.keys(vs).forEach(k => { if (/托盘/.test(k)) vs[k] = Object.assign({}, vs[k], { densityPrices: sel.pal }); });
+    row = Object.assign({}, row, { densityPrices: sel.bulk, variants: vs });
+  }
   const ORDER = ['w1000','w500','w300','w100','w45'];
   const idx = ORDER.indexOf(wk);
   let base, densityUsed = null, effectiveWk = wk, srcLabel = null;
@@ -1915,7 +1923,7 @@ function collectMatches(dest, weight, volume) {
       if (r.bulkMinGw && effDkForRow && effDkForRow.startsWith('<1:') && c.weight < r.bulkMinGw) {
         effDkForRow = (r.densityPrices && r.densityPrices.flat) ? 'flat' : null;
       }
-      const _p = priceFromRow(r, wk, effDkForRow);
+      const _p = priceFromRow(r, wk, effDkForRow, c.weight);
       let base = _p.base;
       const densityUsed = _p.density;
       const effectiveWk = _p.weightKey;
@@ -2086,7 +2094,7 @@ function collectMatches(dest, weight, volume) {
       if (hubRows.length) {
         let bestP = null, bestRow = null;
         hubRows.forEach(hubRow => {
-          const p = priceFromRow(hubRow, wk, effDk);
+          const p = priceFromRow(hubRow, wk, effDk, c.weight);
           if (p.base !== undefined && (!bestP || p.base < bestP.base)) { bestP = p; bestRow = hubRow; }
         });
         if (bestP) {
@@ -2147,7 +2155,7 @@ function collectMatches(dest, weight, volume) {
       const dfwRow = aa128.rows.find(r => normalizeDest(r.dest)==='DFW');
       if (dfwRow) {
         const aDk = (aa128.densityDef && aa128.densityDef.length) ? (matchDensityDef(aa128.densityDef, densityRatio) || dk) : dk;
-        const p = priceFromRow(dfwRow, wk, aDk);
+        const p = priceFromRow(dfwRow, wk, aDk, c.weight);
         if (p.base !== undefined) {
           const fee = AA128_ZONE[qd]==='US' ? 2 : 7;
           const adj = (wk==='w45') ? 0 : currentAdjFor('AA', '直飞DFW');
@@ -2166,7 +2174,7 @@ function collectMatches(dest, weight, volume) {
     if (jl) {
       const yvrRow = jl.rows.find(r => normalizeDest(r.dest)==='YVR');
       if (yvrRow) {
-        const p = priceFromRow(yvrRow, wk, 'flat');
+        const p = priceFromRow(yvrRow, wk, 'flat', c.weight);
         if (p.base !== undefined) {
           const truckFee = jlExtractTruckFee(yvrRow);
           const fee = truckFee != null ? truckFee : JL_CANADA_POOL[qd];
@@ -3732,6 +3740,17 @@ function parseUCTextUpdate(text) {
       const hub = m[1];
       const rest = m[2];
       const adj = {};
+      // 「+100 和 1:200/300 各档 减 4/4/4」：首值给 w100，其余按档分配（新表述，优先于单独 +100）
+      const combo = rest.match(/\+100\s*和\s*1:\s*([\d/]+)\s*各档\s*(加|减)\s*([\d./]+)/);
+      if (combo) {
+        const cSign = combo[2] === '加' ? 1 : -1;
+        const cNums = combo[3].split('/').map(x => parseFloat(x));
+        if (!isNaN(cNums[0])) adj.w100 = cSign * cNums[0];
+        combo[1].split('/').forEach((r, i) => {
+          const v = cNums[i + 1];
+          if (v !== undefined && !isNaN(v)) adj['d' + r.replace(/\D/g, '')] = cSign * v;
+        });
+      }
       // +100 减 N（旧表述：w100 减）
       let wm = rest.match(/\+100\s*减\s*(\d+(?:\.\d+)?)/);
       if (wm) adj.w100 = -parseFloat(wm[1]);
@@ -5530,13 +5549,44 @@ function parseUnifiedMain(text, rawText, ctx) {
     if (overCbm) extraNotes.push(`超${overCbm[1]}方散货适用托盘价`);
     const overT = text.match(/单件超\s*(\d+(?:\.\d+)?)\s*T[^。！!；;]*/);
     if (overT) extraNotes.push(`单件超${overT[1]}T单独确认`);
+    // 排仓规则（平泡货 3-4天清统排）
+    if (/按开板顺序|收满顺延/.test(text)) extraNotes.push('按开板顺序排仓，收满顺延后一班');
     const toDP2 = (d) => { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys2.forEach(w => out[k][w] = d[k]); }); return out; };
     const segParsed = segs.map(s => {
       const palD = {}, bulkD = {};
+      const tiers = [];
+      const content = String(s.content || '');
       const re = /1:\s*(\d+)\s*托盘\s*(\d+(?:\.\d+)?)\s*散货\s*(\d+(?:\.\d+)?)/gi;
-      let x; while ((x = re.exec(s.content))) { palD[+x[1]] = +x[2]; bulkD[+x[1]] = +x[3]; }
-      return { label: s.label, palD, bulkD };
-    }).filter(sp => Object.keys(sp.bulkD).length || Object.keys(sp.palD).length);
+      const parseBlock = (blk) => {
+        const o = { palD: {}, bulkD: {} };
+        re.lastIndex = 0;
+        let x;
+        while ((x = re.exec(blk))) { o.palD[+x[1]] = +x[2]; o.bulkD[+x[1]] = +x[3]; }
+        return o;
+      };
+      // 重量门槛行「+100K / +300K」把同一段切成多个计价层（如平泡货按货量分档）
+      const marks = [...content.matchAll(/[+＋]\s*(\d+)\s*k\b/gi)];
+      if (marks.length >= 2) {
+        const pre = parseBlock(content.slice(0, marks[0].index));
+        marks.forEach((mk, i) => {
+          const end = i < marks.length - 1 ? marks[i + 1].index : content.length;
+          const b = parseBlock(content.slice(mk.index + mk[0].length, end));
+          tiers.push({ minKg: +mk[1], palD: b.palD, bulkD: b.bulkD });
+        });
+        if (Object.keys(pre.palD).length) tiers.unshift({ minKg: 0, palD: pre.palD, bulkD: pre.bulkD });
+        Object.assign(palD, tiers[0].palD);
+        Object.assign(bulkD, tiers[0].bulkD);
+      } else {
+        const b = parseBlock(content);
+        Object.assign(palD, b.palD);
+        Object.assign(bulkD, b.bulkD);
+      }
+      tiers.forEach(t => {
+        Object.keys(palD).forEach(k => { if (t.palD[k] === undefined) t.palD[k] = palD[k]; });
+        Object.keys(bulkD).forEach(k => { if (t.bulkD[k] === undefined) t.bulkD[k] = bulkD[k]; });
+      });
+      return { label: s.label, palD, bulkD, tiers };
+    }).filter(sp => Object.keys(sp.bulkD).length || Object.keys(sp.palD).length || sp.tiers.length);
     const main2 = segParsed[segParsed.length - 1];
     const others2 = segParsed.slice(0, -1);
     if (main2 && Object.keys(main2.bulkD).length) {
@@ -5546,20 +5596,42 @@ function parseUnifiedMain(text, rawText, ctx) {
       const ratios = [...ratioSet].sort((a, b) => a - b);
       const densityDef2 = ratios.map((r, i) => ({ key: `1:${r}+`, min: i === 0 ? 0 : ratios[i - 1], max: i === ratios.length - 1 ? Infinity : ratios[i + 1] }));
       const segDP = (sp, isPal) => { const d = {}; const src = isPal ? sp.palD : sp.bulkD; ratios.forEach(r => { if (src[r] !== undefined) d[`1:${r}+`] = src[r]; }); return d; };
+      // 重量门槛分层（如平泡货 +100K / +300K）：同一档位按重量门槛给不同价
+      const tiersOf = (sp) => {
+        const list = (sp.tiers && sp.tiers.length ? sp.tiers : [{ minKg: 0, palD: sp.palD, bulkD: sp.bulkD }])
+          .slice().sort((x, y) => x.minKg - y.minKg);
+        return list.map(t => {
+          const view = { palD: t.palD, bulkD: t.bulkD };
+          return { minKg: t.minKg, pal: toDP2(segDP(view, true)), bulk: toDP2(segDP(view, false)) };
+        });
+      };
+      const mainTiers = tiersOf(main2);
+      const mainView = mainTiers[0];
       const service = `${main2.label}散货`;
       const variants = {};
-      variants[`${main2.label}托盘`] = { densityPrices: toDP2(segDP(main2, true)) };
+      variants[`${main2.label}托盘`] = { densityPrices: mainView.pal };
       others2.forEach(o => {
         variants[`${o.label}散货`] = { densityPrices: toDP2(segDP(o, false)) };
         variants[`${o.label}托盘`] = { densityPrices: toDP2(segDP(o, true)) };
       });
+      let tierNote = '';
+      if (mainTiers.length > 1) {
+        tierNote = '按重量门槛：' + mainTiers.map(t => {
+          const pk = Object.keys(t.pal)[0];
+          const bk = Object.keys(t.bulk)[0];
+          return `${t.minKg}KG起 托盘${pk ? t.pal[pk].w100 : '-'}/散货${bk ? t.bulk[bk].w100 : '-'}`;
+        }).join('，');
+      }
       const rowRemark = [
         `${dest} 统配`,
         smNote,
+        tierNote,
         ...extraNotes
       ].filter(Boolean).join('；');
-      const row = { dest, densityDef: densityDef2, densityPrices: toDP2(segDP(main2, false)), variants, service, remark: rowRemark,
-        smallRule: smCut ? { kg: smCutW, cbm: smCutVol, cut: smCut } : undefined };
+      const smallSentence = (String(text).match(/小货[\s\S]{0,60}/) || [''])[0];
+      const row = { dest, densityDef: densityDef2, densityPrices: mainView.bulk, variants, service, remark: rowRemark,
+        weightTiers: mainTiers.length > 1 ? mainTiers : undefined,
+        smallRule: smCut ? { kg: smCutW, cbm: smCutVol, cut: smCut, mode: /并且|且|同时/.test(smallSentence) ? 'and' : 'or' } : undefined };
       return { dest, date, ok: true, rows: [row] };
     }
   }
