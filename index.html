@@ -2060,6 +2060,13 @@ function collectMatches(dest, weight, volume) {
         }
         const portRemark = (r.remark || (r.remarks && r.remarks.join(' | ')) || s.remark || '');
         const fullRemark = [portRemark, tierNote, ruleNote].filter(Boolean).join('；');
+        // 该表是否按重量分档：整行任一分量档内不同重量档价格有差异才算有重量档
+        const allDp = r.densityPrices && Object.keys(r.densityPrices).length ? Object.values(r.densityPrices)
+          : (r.prices ? [r.prices] : []);
+        const hasWeightTier = allDp.some(dp => {
+          const vals = ['w45','w100','w300','w500','w1000'].map(k => dp[k]).filter(v => v !== undefined);
+          return vals.length > 0 && new Set(vals).size > 1;
+        });
         let routing = '';
         let ucNote = '';
         const rm = fullRemark.match(/路径:([^|]+)/);
@@ -2073,7 +2080,7 @@ function collectMatches(dest, weight, volume) {
           base, final, adj, matchedDest: (r.dest||'').trim(),
           density: densityUsed, remark: fullRemark, neighborNote, variants: vRefs, service: entryService,
           pp: !!r.pp, bare: !!r.bare, srcLabel, routing, ucNote, gwType,
-          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote, tierCut
+          smallAdj, smallRule: r.smallRule, ruleAdj, ruleNote, tierCut, hasWeightTier
         });
       } else {
         const availW = r.prices ? Object.keys(r.prices) : [];
@@ -2325,12 +2332,10 @@ function updateRateMatch() {
     const smallHit = adjHits.length > 0;
     const denLbl = m.density ? DENSITY_LABEL[m.density] : null;
     const isUC = /^UC/i.test(m.airline || '');
-    let weightPart = '';
-    if (isUC) {
-      if (denLbl) weightPart = ` · ${denLbl}`;
-    } else {
-      weightPart = ` · ${WEIGHT_LABEL[m.weightKey]}档${denLbl ? ` · ${denLbl}` : ''}`;
-    }
+    // 档位显示统一规则（所有航司）：只有重量档 → 只标重量档；只有比重档 → 只标比重档；两档都有 → 重量档 + 比重档
+    const wtLbl = (m.hasWeightTier && m.weightKey && WEIGHT_LABEL[m.weightKey]) ? `${WEIGHT_LABEL[m.weightKey]}档` : '';
+    const denPart = denLbl ? (/（|\(/.test(denLbl) ? denLbl : `${denLbl}档`) : '';
+    const weightPart = (wtLbl || denPart) ? ` · ${[wtLbl, denPart].filter(Boolean).join(' · ')}` : '';
     let titleLine = `<b>${esc(chl || m.airline)}</b>${(!chl && m.transit) ? `<span class="tag tag-blue" style="font-size:11px">${esc(m.transit)}</span>` : ''} · ${esc(m.matchedDest)}${weightPart}`;
     if (m.routing) titleLine += ` · ${esc(m.routing)}`;
     const extras = [];
@@ -3738,7 +3743,7 @@ function parseUCTextUpdate(text) {
     m = seg.match(/^([A-Z]{3})\s*转的点[，,]\s*(.+)/);
     if (m && currentTransit) {
       const hub = m[1];
-      const rest = m[2];
+      let rest = m[2];
       const adj = {};
       // 「+100 和 1:200/300 各档 减 4/4/4」：首值给 w100，其余按档分配（新表述，优先于单独 +100）
       const combo = rest.match(/\+100\s*和\s*1:\s*([\d/]+)\s*各档\s*(加|减)\s*([\d./]+)/);
@@ -3750,6 +3755,8 @@ function parseUCTextUpdate(text) {
           const v = cNums[i + 1];
           if (v !== undefined && !isNaN(v)) adj['d' + r.replace(/\D/g, '')] = cSign * v;
         });
+        // 去掉已消费片段，避免后面按 1:N 各档的正则再次匹配（会把 1:300 的 -5 覆盖成 -6）
+        rest = rest.replace(combo[0], ' ');
       }
       // +100 减 N（旧表述：w100 减）
       let wm = rest.match(/\+100\s*减\s*(\d+(?:\.\d+)?)/);
@@ -5367,8 +5374,22 @@ function parseJlPalLooseRate(text, rawText, ctx) {
 function parseLatamSharedRate(text, rawText, ctx) {
   if (!/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text)) return null;
   if (ctx.isUnified) return null;
-  const wAll = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-  const toDP = (v) => { const o = {}; wAll.forEach(w => o[w] = v); return o; };
+  // 南美统配默认 100KG 档起步：原文没有 45KG 档价时该档不激活（不生成 w45，取价自然回落到 w100 档）
+  // 反过来，只要表价更新里真的写了 45KG 价（如 "45KG 58" / "45K:60" / "小货45公斤 55"），该档自动激活
+  const wAll = ['w100', 'w300', 'w500', 'w1000'];
+  const val45 = (s) => {
+    const m = s.match(/(?:^|[^\d])45\s*(?:KG|K|公斤)\s*(?:档)?\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i);
+    return m ? +m[1] : null;
+  };
+  const row45 = {}, global45 = { v: null };
+  rawText.split(/\n/).map(l => l.trim()).filter(Boolean).forEach(line => {
+    const v = val45(line);
+    if (v === null) return;
+    const codes = (line.match(/\b[A-Z]{3}\b/g) || []).filter(c => !['PVG', 'SHA', 'HKG', 'PEK', 'CAN', 'SZX', 'TSN', 'CGO'].includes(c));
+    if (codes.length) codes.forEach(c => row45[c] = v);
+    else if (global45.v === null) global45.v = v;
+  });
+  const toDP = (v, v45) => { const o = {}; wAll.forEach(w => o[w] = v); if (v45 != null) o.w45 = v45; return o; };
   const portRe = /\b([A-Z]{3})\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(?:平货|平散|平)?\s*[:：]?\s*(\d+(?:\.\d+)?)?/g;
   const rows = [], seen = {};
   let pm;
@@ -5395,12 +5416,14 @@ function parseLatamSharedRate(text, rawText, ctx) {
     }
   }
   const out = rows.map(r => {
+    const v45 = (row45[r.c] != null) ? row45[r.c] : global45.v;
     const parts = [{ key: '1:300+', min: 300 }, { key: '1:500+', min: 500 }, { key: '1:800+', min: 800 }, { key: 'flat', flat: true }];
-    const densityPrices = { '1:300+': toDP(r.m300), '1:500+': toDP(r.m500), '1:800+': toDP(r.m800), flat: toDP(r.flatV) };
+    const densityPrices = { '1:300+': toDP(r.m300, v45), '1:500+': toDP(r.m500, v45), '1:800+': toDP(r.m800, v45), flat: toDP(r.flatV, v45) };
     const remarks = [];
+    if (v45 != null) remarks.push('含45KG档');
     let bulkMinGw = 0;
     if (bubCodes.includes(r.c) && hk.length) {
-      hk.forEach(k => { parts.unshift({ key: '<1:' + k, max: k }); densityPrices['<1:' + k] = toDP(bub[k]); });
+      hk.forEach(k => { parts.unshift({ key: '<1:' + k, max: k }); densityPrices['<1:' + k] = toDP(bub[k], v45); });
       remarks.push(bubAvail);
       bulkMinGw = 100;
     }
