@@ -695,7 +695,7 @@
   <div class="card">
     <div class="card-title quick-query-title">
       <span class="title-text">快速查询</span>
-      <input id="quickDest" placeholder="目的港三字代码，如 JFK" style="text-transform:uppercase;padding:8px 10px;font-size:13px;width:210px">
+      <input id="quickDest" placeholder="三字码/中文城市/国家，如 JFK、维也纳" style="text-transform:uppercase;padding:8px 10px;font-size:13px;width:210px">
       <button class="btn btn-primary" id="btnQuickSearch">查询</button>
       <span id="quickInfo"></span>
     </div>
@@ -5024,23 +5024,70 @@ const AIRPORT_CN = {
   BOG:'哥伦比亚·波哥大', MDE:'哥伦比亚·麦德林', CLO:'哥伦比亚·卡利', MAR:'委内瑞拉·马拉开波', CCS:'委内瑞拉·加拉加斯', LPB:'玻利维亚·拉巴斯',
   CAI:'埃及·开罗', JNB:'南非·约翰内斯堡', CPT:'南非·开普敦', DUR:'南非·德班', LOS:'尼日利亚·拉各斯', ABV:'尼日利亚·阿布贾',
   NBO:'肯尼亚·内罗毕', ADD:'埃塞俄比亚·亚的斯亚贝巴', ACC:'加纳·阿克拉', DAR:'坦桑尼亚·达累斯萨拉姆', CMN:'摩洛哥·卡萨布兰卡', TUN:'突尼斯·突尼斯', ALG:'阿尔及利亚·阿尔及尔',
+  // —— 补充：AA/DL 美国本土二线点 ——
+  BDL:'美国·康涅狄格州·哈特福德', BWI:'美国·马里兰州·巴尔的摩', CLE:'美国·俄亥俄州·克利夫兰', CLT:'美国·北卡罗来纳州·夏洛特', CMH:'美国·俄亥俄州·哥伦布',
+  CVG:'美国·肯塔基州·辛辛那提', PIT:'美国·宾夕法尼亚州·匹兹堡', RDU:'美国·北卡罗来纳州·罗利', MCO:'美国·佛罗里达州·奥兰多', TPA:'美国·佛罗里达州·坦帕',
+  SAN:'美国·加利福尼亚州·圣迭戈', SLC:'美国·犹他州·盐湖城', ELP:'美国·得克萨斯州·埃尔帕索', IND:'美国·印第安纳州·印第安纳波利斯', MCI:'美国·密苏里州·堪萨斯城',
+  MKE:'美国·威斯康星州·密尔沃基', OMA:'美国·内布拉斯加州·奥马哈', SDF:'美国·肯塔基州·路易斯维尔', STL:'美国·密苏里州·圣路易斯', ABQ:'美国·新墨西哥州·阿尔伯克基',
+  AUS:'美国·得克萨斯州·奥斯汀', LRD:'美国·得克萨斯州·拉雷多', MFE:'美国·得克萨斯州·麦卡伦', MSY:'美国·路易斯安那州·新奥尔良', BNA:'美国·田纳西州·纳什维尔',
+  BHM:'美国·阿拉巴马州·伯明翰', CHS:'美国·南卡罗来纳州·查尔斯顿', GSO:'美国·北卡罗来纳州·格林斯伯勒', GSP:'美国·南卡罗来纳州·格林维尔', JAX:'美国·佛罗里达州·杰克逊维尔',
+  KOA:'美国·夏威夷州·凯鲁瓦科纳', OKC:'美国·俄克拉何马州·俄克拉何马城', OGG:'美国·夏威夷州·卡胡卢伊', ORF:'美国·弗吉尼亚州·诺福克', RIC:'美国·弗吉尼亚州·里士满',
+  SAT:'美国·得克萨斯州·圣安东尼奥', TUL:'美国·俄克拉何马州·塔尔萨',
+  // —— 补充：加拿大卡车二程点 ——
+  YYT:'加拿大·纽芬兰省·圣约翰斯', YHZ:'加拿大·新斯科舍省·哈利法克斯', YEG:'加拿大·艾伯塔省·埃德蒙顿', YWG:'加拿大·曼尼托巴省·温尼伯', YHM:'加拿大·安大略省·汉密尔顿',
+  // —— 补充：拉美/加勒比二线点 ——
+  PUJ:'多米尼加·蓬塔卡纳', PVR:'墨西哥·哈利斯科州·巴亚尔塔港', SJD:'墨西哥·下加利福尼亚州·洛斯卡沃斯',
+  SAL:'萨尔瓦多·圣萨尔瓦多', SAP:'洪都拉斯·圣佩德罗苏拉', TGU:'洪都拉斯·特古西加尔巴', MGA:'尼加拉瓜·马那瓜', VVI:'玻利维亚·圣克鲁斯', BZE:'伯利兹·伯利兹城', BAQ:'哥伦比亚·巴兰基亚', CFB:'巴西·卡波弗里奥',
+  // —— 补充：巴西境内（UC/南美线常见二程点）——
+  VIX:'巴西·圣埃斯皮里图州·维多利亚', FLN:'巴西·圣卡塔琳娜州·弗洛里亚诺波利斯', FOR:'巴西·塞阿拉州·福塔莱萨', REC:'巴西·伯南布哥州·累西腓',
+  SSA:'巴西·巴伊亚州·萨尔瓦多', BEL:'巴西·帕拉州·贝伦', NAT:'巴西·北里奥格兰德州·纳塔尔', MCZ:'巴西·阿拉戈斯州·马塞约',
+  CGB:'巴西·马托格罗索州·库亚巴', PMW:'巴西·托坎廷斯州·帕尔马斯', THE:'巴西·皮奥伊州·特雷西纳', JPA:'巴西·帕拉伊巴州·若昂佩索阿',
+  AJU:'巴西·塞尔吉佩州·阿拉卡茹', IGU:'巴西·巴拉那州·伊瓜苏', LDB:'巴西·巴拉那州·隆德里纳', MGF:'巴西·巴拉那州·马林加',
+  NVT:'巴西·圣卡塔琳娜州·纳韦甘蒂斯', JOI:'巴西·圣卡塔琳娜州·若因维利', XAP:'巴西·圣卡塔琳娜州·沙佩科', RBR:'巴西·阿克里州·里奥布兰科',
+  PVH:'巴西·朗多尼亚州·波多韦柳', BVB:'巴西·罗赖马州·博阿维斯塔', STM:'巴西·帕拉州·圣塔伦', MCP:'巴西·阿马帕州·马卡帕',
+  SLZ:'巴西·马拉尼昂州·圣路易斯', UDI:'巴西·米纳斯吉拉斯州·乌贝兰迪亚', BPS:'巴西·巴伊亚州·塞古鲁港', IOS:'巴西·巴伊亚州·伊列乌斯', JDO:'巴西·塞阿拉州·北茹阿泽鲁',
+  // —— 补充：南美其它国家二线点 ——
+  COR:'阿根廷·科尔多瓦省·科尔多瓦', ROS:'阿根廷·圣菲省·罗萨里奥', MDZ:'阿根廷·门多萨省·门多萨', NQN:'阿根廷·内乌肯省·内乌肯',
+  SLA:'阿根廷·萨尔塔省·萨尔塔', TUC:'阿根廷·图库曼省·图库曼', BRC:'阿根廷·里奥内格罗省·巴里洛切', REL:'阿根廷·丘布特省·特雷利乌', USH:'阿根廷·火地岛省·乌斯怀亚',
+  ANF:'智利·安托法加斯塔大区·安托法加斯塔', IQQ:'智利·塔拉帕卡大区·伊基克', PMC:'智利·洛斯拉戈斯大区·蒙特港', CCP:'智利·比奥比奥大区·康塞普西翁',
+  PUQ:'智利·麦哲伦大区·蓬塔阿雷纳斯', LSC:'智利·科金博大区·拉塞雷纳',
+  CUZ:'秘鲁·库斯科大区·库斯科', AQP:'秘鲁·阿雷基帕大区·阿雷基帕', IQT:'秘鲁·洛雷托大区·伊基托斯', TRU:'秘鲁·拉利伯塔德大区·特鲁希略', PIU:'秘鲁·皮乌拉大区·皮乌拉',
+  CTG:'哥伦比亚·玻利瓦尔省·卡塔赫纳', BGA:'哥伦比亚·桑坦德省·布卡拉曼加', CUC:'哥伦比亚·北桑坦德省·库库塔', PEI:'哥伦比亚·里萨拉尔达省·佩雷拉',
+  MTR:'哥伦比亚·科尔多瓦省·蒙特里亚', AXM:'哥伦比亚·金迪奥省·亚美尼亚',
+  CBB:'玻利维亚·科恰班巴省·科恰班巴', TJA:'玻利维亚·塔里哈省·塔里哈', PDP:'乌拉圭·马尔多纳多省·埃斯特角',
+  BLA:'委内瑞拉·安索阿特吉州·巴塞罗那', MUN:'委内瑞拉·莫纳加斯州·马图林', PMV:'委内瑞拉·新埃斯帕塔州·玛格丽塔',
+  // —— 补充：中美洲/加勒比/墨西哥二线点 ——
+  RTB:'洪都拉斯·海湾群岛省·罗阿坦', MID:'墨西哥·尤卡坦州·梅里达', VER:'墨西哥·韦拉克鲁斯州·韦拉克鲁斯', LAP:'墨西哥·下加利福尼亚州·拉巴斯',
+  MZT:'墨西哥·锡那罗亚州·马萨特兰', HMO:'墨西哥·索诺拉州·埃莫西约', CJS:'墨西哥·奇瓦瓦州·华雷斯', OAX:'墨西哥·瓦哈卡州·瓦哈卡',
+  QRO:'墨西哥·克雷塔罗州·克雷塔罗', SLP:'墨西哥·圣路易斯波托西州·圣路易斯波托西', ZLO:'墨西哥·科利马州·曼萨尼约',
+  CUR:'库拉索·威廉斯塔德', BON:'荷兰加勒比·博奈尔', SXM:'荷属圣马丁·菲利普斯堡', GND:'格林纳达·圣乔治', SVD:'圣文森特和格林纳丁斯·金斯敦',
+  FDF:'马提尼克·法兰西堡', PTP:'瓜德罗普·皮特尔角', CAY:'法属圭亚那·卡宴', PAP:'海地·太子港',
   SYD:'澳大利亚·新南威尔士州·悉尼', MEL:'澳大利亚·维多利亚州·墨尔本', BNE:'澳大利亚·昆士兰州·布里斯班', PER:'澳大利亚·西澳大利亚州·珀斯', ADL:'澳大利亚·南澳大利亚州·阿德莱德', AKL:'新西兰·奥克兰', WLG:'新西兰·惠灵顿', CHC:'新西兰·基督城'
 };
 
-$('btnQuickSearch').addEventListener('click', () => {
-  const dest = $('quickDest').value.trim().toUpperCase();
-  if (!dest) { toast('请输入目的港'); return; }
+// 未收录港口的中文名可由用户随时补录（存在本机，不覆盖内置字典）
+const AIRPORT_CN_CUSTOM_KEY = 'af_airport_cn_custom_v1';
+function loadAirportCnCustom() {
+  try { const o = JSON.parse(localStorage.getItem(AIRPORT_CN_CUSTOM_KEY) || '{}'); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } catch (e) { return {}; }
+}
+function saveAirportCnCustom(patch) {
+  const cur = loadAirportCnCustom();
+  Object.keys(patch).forEach(k => { const c = String(k).toUpperCase(); if (patch[k]) cur[c] = String(patch[k]); });
+  try { localStorage.setItem(AIRPORT_CN_CUSTOM_KEY, JSON.stringify(cur)); } catch (e) {}
+}
+function airportCnInfo(code) {
+  const c = String(code || '').toUpperCase();
+  return AIRPORT_CN[c] || loadAirportCnCustom()[c] || '';
+}
+function airportCnAll() { return Object.assign({}, AIRPORT_CN, loadAirportCnCustom()); }
+
+function runQuickSearch() {
+  const raw = $('quickDest').value.trim();
+  if (!raw) { toast('请输入目的港'); return; }
+  const up = raw.toUpperCase();
+  const dict = airportCnAll();
   const sheets = loadRates();
   const box = $('quickResult');
-  // 目的港中文信息显示在查询键右侧，格式：三字码 [国家-州-城市市]
-  const info = AIRPORT_CN[dest];
-  let infoDisp = '';
-  if (info) {
-    infoDisp = info.replace(/·([^·]+)$/, (m, city) => '·' + (city.endsWith('市') ? city : city + '市'));
-  }
-  $('quickInfo').innerHTML = infoDisp ? '<b style="color:var(--primary);font-size:15px">' + dest + '</b> ['+ infoDisp.replace(/·/g,'-') +']' : '';
-  let html = '';
-  // 表价：该目的港全部档位（标准 + 各比重档）各重量档价格
   const ORDER = ['w45','w100','w300','w500','w1000'];
   const rowPrices = (obj, label, adj) => {
     const keys = ORDER.filter(k => obj && obj[k] !== undefined);
@@ -5049,39 +5096,90 @@ $('btnQuickSearch').addEventListener('click', () => {
     keys.forEach(k => { const v = obj[k] + (k === 'w45' ? 0 : adj); s += '<span style="margin-right:8px">' + WEIGHT_LABEL[k] + ': ¥' + v + '</span>'; });
     return s + '</div>';
   };
-  let found = false;
-  sheets.forEach(s => {
-    if (s.expired === true || (s.expiry && s.expiry < todayStr())) return;
-    const rows = (s.rows || []).filter(r => normalizeDest(r.dest) === dest);
-    if (!rows.length) return;
-    found = true;
-    const adj = currentAdjFor(s.airline, s.transit);
-    let part = '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
-    part += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
-    part += '<div><b>' + esc(s.airline) + '</b> ' + esc(s.date);
-    if (s.transit) part += ' <span style="color:var(--accent);font-size:12px">' + esc(s.transit) + '</span>';
-    if (adj !== 0) part += ' <span style="color:var(--accent)">(调价' + (adj > 0 ? '+' : '') + adj + ')</span>';
-    part += '</div>';
-    // 直接跳到这张表价详情，省得回下方折叠列表里翻找
-    part += '<button class="btn btn-ghost btn-sm quick-open-rate" data-open-rate="' + esc(s.id) + '" style="padding:3px 10px;font-size:12px">查看原表</button>';
-    part += '</div>';
-    rows.forEach(r => {
-      part += rowPrices(r.prices, '标准', adj);
-      const dp = r.densityPrices || {};
-      Object.keys(dp).forEach(dk => {
-        part += rowPrices(dp[dk], (dk === 'flat' ? '平散货' : (DENSITY_LABEL[dk] || dk)), adj);
+  // 中文信息格式：国家-州/省-城市市
+  const infoOf = (code) => {
+    const info = dict[code];
+    if (!info) return '';
+    return info.replace(/·([^·]+)$/, (m, city) => '·' + (city.endsWith('市') ? city : city + '市')).replace(/·/g, '-');
+  };
+  // 查询键解析：三字码精确查；中文城市名/国家名/代码前缀做模糊匹配
+  let codes = [];
+  if (/^[A-Z]{3}$/.test(up)) codes = [up];
+  else {
+    codes = Object.keys(dict).filter(c =>
+      c.indexOf(up) === 0 || dict[c].indexOf(raw) >= 0 || dict[c].toUpperCase().indexOf(up) >= 0
+    ).slice(0, 12);
+  }
+  if (!codes.length) {
+    $('quickInfo').innerHTML = '';
+    box.innerHTML = '<div class="empty">没有匹配到目的港：' + esc(raw) + '</div>';
+    return;
+  }
+  if (codes.length === 1) {
+    const infoDisp = infoOf(codes[0]);
+    $('quickInfo').innerHTML = infoDisp ? '<b style="color:var(--primary);font-size:15px">' + codes[0] + '</b> [' + infoDisp + ']' : '';
+  } else {
+    $('quickInfo').innerHTML = '<span style="color:var(--text-3);font-size:13px">匹配到 ' + codes.length + ' 个目的港</span>';
+  }
+  let html = '';
+  let anyFound = false;
+  codes.forEach(code => {
+    let part = '';
+    let found = false;
+    sheets.forEach(s => {
+      if (s.expired === true || (s.expiry && s.expiry < todayStr())) return;
+      const rows = (s.rows || []).filter(r => normalizeDest(r.dest) === code);
+      if (!rows.length) return;
+      found = true;
+      const adj = currentAdjFor(s.airline, s.transit);
+      part += '<div style="margin-bottom:10px;padding:10px;background:var(--bg);border-radius:6px">';
+      part += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
+      part += '<div><b>' + esc(s.airline) + '</b> ' + esc(s.date);
+      if (s.transit) part += ' <span style="color:var(--accent);font-size:12px">' + esc(s.transit) + '</span>';
+      if (adj !== 0) part += ' <span style="color:var(--accent)">(调价' + (adj > 0 ? '+' : '') + adj + ')</span>';
+      part += '</div>';
+      // 直接跳到这张表价详情，省得回下方折叠列表里翻找
+      part += '<button class="btn btn-ghost btn-sm quick-open-rate" data-open-rate="' + esc(s.id) + '" style="padding:3px 10px;font-size:12px">查看原表</button>';
+      part += '</div>';
+      rows.forEach(r => {
+        part += rowPrices(r.prices, '标准', adj);
+        const dp = r.densityPrices || {};
+        Object.keys(dp).forEach(dk => {
+          part += rowPrices(dp[dk], (dk === 'flat' ? '平散货' : (DENSITY_LABEL[dk] || dk)), adj);
+        });
       });
+      part += '</div>';
     });
-    part += '</div>';
-    html += part;
+    const zh = dict[code]
+      ? '<span style="color:var(--text-3);font-size:12px;font-weight:400;margin-left:8px">' + esc(infoOf(code)) + '</span>'
+      : ' <span style="color:var(--accent);font-size:12px;font-weight:400;margin-left:8px">中文名未收录</span><button class="btn btn-ghost btn-sm quick-add-cn" data-code="' + esc(code) + '" style="padding:2px 8px;font-size:11px;margin-left:6px">补充</button>';
+    if (found) {
+      html += '<div style="margin-bottom:6px"><div style="font-size:14px;font-weight:700;margin:2px 0 8px">' + code + zh + '</div>' + part + '</div>';
+      anyFound = true;
+    } else if (codes.length === 1) {
+      const cn = infoOf(code);
+      html += '<div class="empty">表价库里没有 ' + esc(code) + (cn ? '（' + esc(cn) + '）' : '') +
+        (dict[code] ? '' : ' <button class="btn btn-ghost btn-sm quick-add-cn" data-code="' + esc(code) + '" style="padding:2px 8px;font-size:11px">补充中文名</button>') + '</div>';
+    }
   });
-  if (!found && !info) html += '<div class="empty">表价库里没有 ' + esc(dest) + '</div>';
-  else if (!found && info) html += '<div style="margin-top:8px"><div class="empty">该目的港暂无匹配表价</div></div>';
+  if (!anyFound && !html) html = '<div class="empty">' + esc(raw) + '：该目的港暂无匹配表价</div>';
   box.innerHTML = html;
   box.querySelectorAll('.quick-open-rate').forEach(btn => {
     btn.addEventListener('click', () => openRateDetail(btn.dataset.openRate));
   });
-});
+  // 未收录港口：一键补录中文名，存本机，下次查询直接显示
+  box.querySelectorAll('.quick-add-cn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.dataset.code;
+      const v = (window.prompt('补充 ' + code + ' 的中文名（格式：国家·州/省·城市，例：巴西·圣埃斯皮里图州·维多利亚）') || '').trim();
+      if (!v) return;
+      saveAirportCnCustom({ [code]: v.replace(/-/g, '·') });
+      runQuickSearch();
+    });
+  });
+}
+
+$('btnQuickSearch').addEventListener('click', runQuickSearch);
 
 // ---------- 统配表价文字解析（托盘/散货 × 服务等级 × 重泡比重） ----------
 // 小货减价规则：kg 门槛 / 体积门槛 / 条件关系(and|or) / 减价额
@@ -5280,6 +5378,11 @@ function parseOcrDensityRate(text, rawText, ctx) {
   if (!/\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?/.test(text)) return null;
   if (/托盘\s+\d|1:\d+\s+\d/.test(text)) return null;
   if (ctx.isUnified) return null;
+  // 表价里若明确写了 45KG 价（如 "45KG 58"），该档才激活；否则不凭空补 45KG 档
+  const ocr45Val = (() => {
+    const m = String(rawText || '').match(/(?:^|[^\d])45\s*(?:KG|K|公斤)\s*(?:档)?\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i);
+    return m ? +m[1] : null;
+  })();
   const cleanLabel = (s) => s.replace(/《/g,'<').replace(/比/g,':').replace(/／/g,'/').replace(/：/g,':');
   const parseLabel = (label) => {
     label = cleanLabel(label);
@@ -5312,7 +5415,8 @@ function parseOcrDensityRate(text, rawText, ctx) {
     const dp = {};
     const wMap = ['w100','w300','w500','w1000'];
     prices.forEach((p, i) => { if (wMap[i]) dp[wMap[i]] = p; });
-    dp.w45 = dp.w100;
+    // 只按表上出现过的重量档建价：图片表通常只有 100/300/500/1000，不补 45KG 档（45KG 票取价时回落到 100KG 档）
+    if (ocr45Val != null) dp.w45 = ocr45Val;
     densityRows.push({ ...labelInfo, dp });
   });
   if (densityRows.length < 2) return null;
@@ -5374,9 +5478,8 @@ function parseJlPalLooseRate(text, rawText, ctx) {
 function parseLatamSharedRate(text, rawText, ctx) {
   if (!/\b[A-Z]{3}\s+1:\d+\s*\/\s*\d+\s*\/\s*\d+\s+\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/.test(text)) return null;
   if (ctx.isUnified) return null;
-  // 南美统配默认 100KG 档起步：原文没有 45KG 档价时该档不激活（不生成 w45，取价自然回落到 w100 档）
-  // 反过来，只要表价更新里真的写了 45KG 价（如 "45KG 58" / "45K:60" / "小货45公斤 55"），该档自动激活
-  const wAll = ['w100', 'w300', 'w500', 'w1000'];
+  // 南美统配默认 100KG 档起步，且只按表价给的档位建价：只挂 w100，原文明确给 45KG 价时才激活 w45
+  const wAll = ['w100'];
   const val45 = (s) => {
     const m = s.match(/(?:^|[^\d])45\s*(?:KG|K|公斤)\s*(?:档)?\s*[:：]?\s*(\d{1,4}(?:\.\d+)?)/i);
     return m ? +m[1] : null;
@@ -5556,7 +5659,8 @@ function parseUnifiedMain(text, rawText, ctx) {
   // 比重档驱动格式：1:167 托盘33 散货32（每档给托盘+散货价，无 flat 平档）——如 MXP/FRA 统配
   const ratioDriven = /1:\s*\d+\s*(?:托盘|散货)/.test(text);
   if (ratioDriven) {
-    const wKeys2 = ['w45', 'w100', 'w300', 'w500', 'w1000'];
+    // 只按表价给的档位建价：统配表只报比重档（1:xxx 托盘/散货），没有重量档就统一挂 w100，不补 45/300/500/1000
+    const wKeys2 = ['w100'];
     // 小货减价规则识别：兼容 "(500KG 以下小货 - 1)"（FRA 档位行内备注）与 "小货价：500kg或3cbm以下平货 -1/K"（AMS 标题行）
     // 语义：表价=原文数字；小货(毛重≤kg 或 体积≤cbm 任一满足)价 = 表价 - cut，由匹配层按询价条件动态应用（row.smallRule）
     const smCutM = text.match(/(\d+)\s*(?:kg|KG|公斤)(?:\s*或\s*(\d+(?:\.\d+)?)\s*cbm?)?\s*以下?\s*(?:平货|小货)?\s*[-]\s*(\d+(?:\.\d+)?)/);
@@ -5661,7 +5765,8 @@ function parseUnifiedMain(text, rawText, ctx) {
   // 散货重量档 + 比重档 报价（如 SIN）：+45 19 +100 17 +1000 16 1:200 15 ...
   if (!ratioDriven && /[+\+](\d+)/.test(text)) {
     const wKeys3 = ['w45', 'w100', 'w300', 'w500', 'w1000'];
-    const toDP3 = (d) => { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys3.forEach(w => out[k][w] = d[k]); }); return out; };
+    // 只按表价写出的重量档建价（+45/+100/+1000），没写的档位不补；表里连重量档都没有就用 w100 承载
+    const toDP3 = (d) => { const out = {}; const wk = Object.keys(prices).length ? Object.keys(prices) : ['w100']; Object.keys(d).forEach(k => { out[k] = {}; wk.forEach(w => out[k][w] = d[k]); }); return out; };
     const wkOf = (w) => w <= 45 ? 'w45' : w <= 100 ? 'w100' : w <= 300 ? 'w300' : w <= 500 ? 'w500' : 'w1000';
     const prices = {};
     let y, reW;
@@ -5722,7 +5827,8 @@ function parseUnifiedMain(text, rawText, ctx) {
     Object.keys(heavy).forEach(k => { if (heavy[k] !== undefined) d[`1:${k}+`] = heavy[k]; });
     return d;
   }
-  const wKeys = ['w45', 'w100', 'w300', 'w500', 'w1000'];
+  // 托盘/散货统配表只报比重档，没有重量分档：统一挂 w100 承载，不补 45/300/500/1000
+  const wKeys = ['w100'];
   function toDensityPrices(d) { const out = {}; Object.keys(d).forEach(k => { out[k] = {}; wKeys.forEach(w => out[k][w] = d[k]); }); return out; }
 
   const service = `${main.label}散货`;
