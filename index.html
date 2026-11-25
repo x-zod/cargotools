@@ -2042,6 +2042,7 @@ function collectMatches(dest, weight, volume) {
               if (!ndp) return;
               const np = (ndp[effectiveWk] !== undefined ? ndp[effectiveWk] : ndp[wk]);
               if (np === undefined) return;
+              if (np === base) return;  // 相邻档价与命中档相同（UC spot 单一口径价）不再重复展示
               nbrParts.push(`${DENSITY_LABEL[nk] || nk} ¥${fmtPrice(np + adj, r.pp, r.bare)}`);
             });
             if (nbrParts.length) neighborNote = '相邻档：' + nbrParts.join(' / ');
@@ -3592,6 +3593,7 @@ function parseUCRateSheet(worksheet) {
           if (routing) remark.unshift('路径:' + routing);
           if (laxSwap !== null) remark.push('货机swap space价=' + laxSwap);
           if (miaOpenPrice !== null) remark.push('货机开口价=' + miaOpenPrice);
+          if (miaNormal !== null && miaNormal !== miaOpenPrice) remark.push('MIA价=' + miaNormal);
           out.push({
             origin: 'PVG', dest: r.dest, displayName: r.dest,
             transit: 'MIA',
@@ -3714,6 +3716,14 @@ function parseUCTextUpdate(text) {
   });
 
   function parseSegment(seg) {
+    // 「LAX swap space， LAX-SCL PAX，+100 56…」写在同一行时，先剥掉前缀并切换中转点上下文，
+    // 让后面的枢纽行正则仍能从 "LAX-SCL" 开头匹配（否则整段被当备注丢掉）
+    const swapPrefix = seg.match(/^LAX\s*swap\s*space\s*[，,]?\s*(.*)$/i);
+    if (swapPrefix) {
+      currentTransit = 'LAX';
+      seg = swapPrefix[1].trim();
+      if (!seg) return;
+    }
     // 枢纽港行："AKL-SCL PAX，+100 57，1:200/300/400/700/1000 56/49/48/47/46"
     let m = seg.match(/^([A-Z]{3})-([A-Z]{3})\s+PAX[，,]\s*\+100\s+(\d+(?:\.\d+)?)[，,]?\s*(?:1:([\d/]+)\s+([\d./]+))?/);
     if (m) {
@@ -3814,6 +3824,14 @@ function parseUCTextUpdate(text) {
     if (/^MIA/i.test(seg) && /(加|减)/.test(seg) && (/\+100/.test(seg) || /1\s*[：:]/.test(seg))) {
       const map = {};
       seg.split(/[，,；;]/).map(s => s.trim()).filter(Boolean).forEach(p => {
+        // "1:300/400/800 各档不变"：显式记 0，避免下游误当未提及
+        if (/不变/.test(p) && (/\+100/.test(p) || /1\s*[：:]/.test(p))) {
+          if (/\+100/.test(p)) map.w100 = 0;
+          for (const x of p.matchAll(/1\s*[：:]\s*([\d/]+)/g)) {
+            x[1].split('/').forEach(r => { map['d' + r.replace(/\D/g, '')] = 0; });
+          }
+          return;
+        }
         const sm = p.match(/(加|减)\s*([\d./]+)/);
         if (!sm) return;
         const sign = sm[1] === '加' ? 1 : -1;
@@ -3885,6 +3903,7 @@ function applyUCTextUpdate(baseRows, textUpdate) {
   const rules = textUpdate.transferRules;  // {SCL-AKL: {hub, transit, adj}}
   const miaAdj = textUpdate.miaAdj;
   const miaAdjMap = textUpdate.miaAdjMap || {}
+  const hasMiaMap = Object.keys(miaAdjMap).length > 0;
 
   // 从remarks中提取Routing，判断经哪个枢纽港转
   const getTransferHub = (r) => {
@@ -3926,21 +3945,16 @@ function applyUCTextUpdate(baseRows, textUpdate) {
       const hubKey = meta.baseGW + '-' + meta.hub;
       if (hubs[hubKey]) {
         const hubPrices = hubs[hubKey].prices;
-        const allPrices = {};
-        Object.keys(hubPrices).forEach(k => {
-          allPrices[k] = hubPrices[k] + meta.add;
-        });
-        const dp = {};
-        Object.keys(allPrices).forEach(k => {
-          if (k.startsWith('d')) { dp[k] = { w100: allPrices[k] }; delete allPrices[k]; }
-        });
-        newRow.prices = allPrices;
-        newRow.densityPrices = dp;
+        // UC 基准表的 spot 列是单一 +100 口径价：转点价 = 枢纽 +100 新价 + 表内固定转点费
+        // 不按比重档拆价（表内没有「枢纽各档 + 转点费」的报价），所以只保留 +100 一档
+        const hubSpot = hubPrices.w100 !== undefined ? hubPrices.w100 : Object.values(hubPrices)[0];
+        newRow.prices = { w100: hubSpot + meta.add };
+        newRow.densityPrices = {};
+        delete newRow.densityDef;
         newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + meta.hub + '+' + meta.add + '(' + (meta.gwType === 'truck' ? '卡转' : '空转') + ')');
         // 卡转记录有空转运费(airAdd)时，动态计算空转价=枢纽港新价格+airAdd
         if (meta.gwType === 'truck' && meta.airAdd !== undefined) {
-          const airPrice = (hubPrices.w100 !== undefined ? hubPrices.w100 : Object.values(hubPrices)[0]) + meta.airAdd;
-          newRow.remarks.push('空转价=' + airPrice);
+          newRow.remarks.push('空转价=' + (hubSpot + meta.airAdd));
         }
         updated = true;
       }
@@ -3969,8 +3983,7 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         newRow.prices.w100 = defaultW100;
         // 比重档
         const dp = {};
-        // 手写版只给「各档加/减/不变」，档本身相对开口价的固有档差必须取自枢纽行
-        // （否则所有档会被算成等于开口价，1:300 就会高于枢纽 1:300 十来个点）
+        // 口径：转点各档价 = 基准表该目的港 "+100" 价 + 枢纽该档相对 +100 的档差 + 文字版该档加减
         const hubEntry = hubs[meta.baseGW + '-' + transferHub];
         const hubPrices = (hubEntry && hubEntry.prices) ? hubEntry.prices : null;
         const hubDelta = (k) => {
@@ -4000,12 +4013,27 @@ function applyUCTextUpdate(baseRows, textUpdate) {
         if (swapW100 !== null) priceInfo.push('货机swap价' + swapW100);
         newRow.remarks.push('文字版更新:' + textUpdate.date + ' 经' + transferHub + '转(' + priceInfo.join('/') + ')');
         updated = true;
+      } else if ((meta.baseGW === 'MIA' || r.transit === 'MIA') && meta.miaNormal !== null && meta.miaNormal !== undefined) {
+        // MIA 二程行：基准表 spot 列已给死 MIA 价（如 "LAX 98 / MIA 88" 的 88），
+        // 转点价取该字面价，再按文字版 MIA 分档加减（+100/1:200 +3，其余档不变）
+        const miaBase = meta.miaNormal;
+        const dp = {};
+        const w100Adj = hasMiaMap ? (miaAdjMap.w100 !== undefined ? miaAdjMap.w100 : 0) : miaAdj;
+        newRow.prices = { w100: miaBase + w100Adj };
+        Object.keys(miaAdjMap).forEach(k => {
+          if (k.startsWith('d')) dp[k] = { w100: miaBase + (miaAdjMap[k] || 0) };
+        });
+        newRow.densityPrices = dp;
+        newRow.remarks.push('文字版更新:' + textUpdate.date + ' MIA字面价' + miaBase
+          + (w100Adj ? (' +100' + (w100Adj > 0 ? '+' : '') + w100Adj) : '')
+          + (Object.keys(dp).length ? ' 各档' + Object.keys(dp).map(k => '1:' + k.substring(1) + (miaAdjMap[k] ? (miaAdjMap[k] > 0 ? '+' : '') + miaAdjMap[k] : '0')).join('/') : ''));
+        updated = true;
       }
     }
 
     // MIA中转分档加价（+100 与 1:200 一档、1:300/400/800 另一档）；没有分档表时回退单一数值全档统一
-    const hasMiaMap = Object.keys(miaAdjMap).length > 0;
-    if ((miaAdj || hasMiaMap) && r.transit === 'MIA') {
+    const miaLiteralDone = meta.baseGW === 'MIA' && meta.miaNormal !== null && meta.miaNormal !== undefined;
+    if ((miaAdj || hasMiaMap) && r.transit === 'MIA' && !miaLiteralDone) {
       const miaFor = (k) => (hasMiaMap ? (miaAdjMap[k] !== undefined ? miaAdjMap[k] : 0) : miaAdj);
       const baseW100 = (r.prices && r.prices.w100 !== undefined) ? r.prices.w100 : null;
       Object.keys(newRow.prices).forEach(k => {
